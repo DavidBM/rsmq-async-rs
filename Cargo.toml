@@ -1,0 +1,12 @@
+[package]
+name = "rsmq-rs"
+version = "0.1.0"
+authors = ["David Bonet <webbonet@gmail.com>"]
+edition = "2018"
+
+[dependencies]
+redis = "0.15.1"
+async-std = "1.4.0"
+lazy_static = "1.4.0"
+rand = "0.7.3"
+radix_fmt = "1.0.0"
