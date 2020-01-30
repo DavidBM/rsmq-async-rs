@@ -1,3 +1,25 @@
+//! This is a port of the nodejs Redis Simple Message Queue package. It is a 1-to-1 conversion using async.
+//! 
+//! ```
+//! use rsmq::Rsmq;
+//! 
+//! //Lets create the instance
+//! let rsmq = Rsmq::new(Default::default());
+//! 
+//! 
+//! 
+//! 
+//! 
+//! 
+//! 
+//! 
+//! 
+//! 
+//! 
+//! 
+//! 
+//! 
+
 mod errors;
 
 use errors::*;
