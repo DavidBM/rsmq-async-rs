@@ -1,8 +1,12 @@
 [package]
 name = "rsmq-rs"
-version = "0.1.0"
+version = "1.0.0"
 authors = ["David Bonet <webbonet@gmail.com>"]
 edition = "2018"
+license = "MIT"
+description = "Async RSMQ port to rust. RSMQ is a simple redis queue system that works in any redis v2.4+. It contains the same methods as the original one iin https://github.com/smrchy/rsmq"
+homepage = "https://github.com/Couragium/rsmq-rs"
+repository = "https://github.com/Couragium/rsmq-rs"
 
 [dependencies]
 redis = "0.15.1"
