@@ -1,6 +1,6 @@
 [package]
 name = "rsmq-rs"
-version = "1.0.0"
+version = "1.0.1"
 authors = ["David Bonet <webbonet@gmail.com>"]
 edition = "2018"
 license = "MIT"

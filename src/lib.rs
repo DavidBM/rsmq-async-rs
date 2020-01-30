@@ -2,22 +2,13 @@
 //! 
 //! ```
 //! use rsmq::Rsmq;
-//! 
+//! //...inside fn main()
 //! //Lets create the instance
-//! let rsmq = Rsmq::new(Default::default());
+//! let rsmq = Rsmq::new(Default::default()).await?;
 //! 
+//! let message = rsmq.receive_message_async("myqueue", None).await?;
 //! 
-//! 
-//! 
-//! 
-//! 
-//! 
-//! 
-//! 
-//! 
-//! 
-//! 
-//! 
+//! rsmq.delete_message_async("myqueue", message.id).await?;
 //! 
 
 mod errors;
@@ -39,11 +30,11 @@ struct QueueDescriptor {
 
 #[derive(Debug)]
 pub struct RsmqOptions {
-    host: String,
-    port: String,
-    realtime: bool,
-    password: Option<String>,
-    ns: String,
+    pub host: String,
+    pub port: String,
+    pub realtime: bool,
+    pub password: Option<String>,
+    pub ns: String,
 }
 
 impl Default for RsmqOptions {
@@ -60,24 +51,24 @@ impl Default for RsmqOptions {
 
 #[derive(Debug)]
 pub struct RsmqMessage {
-    id: String,
-    message: String,
-    rc: u64,
-    fr: u64,
-    sent: u64,
+    pub id: String,
+    pub message: String,
+    pub rc: u64,
+    pub fr: u64,
+    pub sent: u64,
 }
 
 #[derive(Debug)]
 pub struct RsmqQueueAttributes {
-    vt: u64,
-    delay: u64,
-    maxsize: u64,
-    totalrecv: u64,
-    totalsent: u64,
-    created: u64,
-    modified: u64,
-    msgs: u64,
-    hiddenmsgs: u64,
+    pub vt: u64,
+    pub delay: u64,
+    pub maxsize: u64,
+    pub totalrecv: u64,
+    pub totalsent: u64,
+    pub created: u64,
+    pub modified: u64,
+    pub msgs: u64,
+    pub hiddenmsgs: u64,
 }
 
 struct RedisConnection(Connection);
