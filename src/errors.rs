@@ -13,7 +13,7 @@ impl fmt::Display for NoAttributeSupplied {
 }
 
 #[derive(Debug)]
-pub struct MissingParameter(&'static str);
+pub struct MissingParameter(pub String);
 
 impl Error for MissingParameter {}
 
@@ -24,7 +24,7 @@ impl fmt::Display for MissingParameter {
 }
 
 #[derive(Debug)]
-pub struct InvalidFormat(&'static str);
+pub struct InvalidFormat(pub String);
 
 impl Error for InvalidFormat {}
 
@@ -35,7 +35,7 @@ impl fmt::Display for InvalidFormat {
 }
 
 #[derive(Debug)]
-pub struct InvalidValue((&'static str, i64, i64));
+pub struct InvalidValue(pub String, pub String, pub String);
 
 impl Error for InvalidValue {}
 
@@ -44,9 +44,9 @@ impl fmt::Display for InvalidValue {
         write!(
             f,
             "{} must be between {} and {}",
-            (self.0).0,
-            (self.0).1,
-            (self.0).2
+            self.0,
+            self.1,
+            self.2
         )
     }
 }

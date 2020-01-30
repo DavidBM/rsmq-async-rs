@@ -2,9 +2,9 @@ mod errors;
 
 use errors::*;
 use lazy_static::lazy_static;
+use radix_fmt::radix_36;
 use rand::seq::IteratorRandom;
 use redis::{aio::Connection, pipe, Client, Script};
-use radix_fmt::radix_36;
 
 #[derive(Debug)]
 struct QueueDescriptor {
@@ -37,10 +37,25 @@ impl Default for RsmqOptions {
 }
 
 #[derive(Debug)]
-pub struct Rsmq {
-    client: Client,
-    connection: RedisConnection,
-    options: RsmqOptions,
+pub struct RsmqMessage {
+    id: String,
+    message: String,
+    rc: u64,
+    fr: u64,
+    sent: u64,
+}
+
+#[derive(Debug)]
+pub struct RsmqQueueAttributes {
+    vt: u64,
+    delay: u64,
+    maxsize: u64,
+    totalrecv: u64,
+    totalsent: u64,
+    created: u64,
+    modified: u64,
+    msgs: u64,
+    hiddenmsgs: u64,
 }
 
 struct RedisConnection(Connection);
@@ -57,6 +72,13 @@ lazy_static! {
     static ref POP_MESSAGE: Script = Script::new(include_str!("./redis-scripts/popMessage.lua"));
     static ref RECEIVE_MESSAGE: Script =
         Script::new(include_str!("./redis-scripts/receiveMessage.lua"));
+}
+
+#[derive(Debug)]
+pub struct Rsmq {
+    client: Client,
+    connection: RedisConnection,
+    options: RsmqOptions,
 }
 
 impl Rsmq {
@@ -80,48 +102,351 @@ impl Rsmq {
         })
     }
 
-    pub fn change_message_visibility_async() {
-        unimplemented!();
+    pub async fn change_message_visibility_async(
+        &mut self,
+        qname: &str,
+        message_id: &str,
+        hidden_duration: u64,
+    ) -> Result<(), RsmqError> {
+        number_in_range(hidden_duration, 0, 9_999_999)?;
+
+        let queue = self.get_queue(qname, false).await?;
+        //options.id, q.ts + options.vt * 1000
+        CHANGE_MESSAGE_VISIVILITY
+            .arg(3)
+            .arg(format!("{}{}", self.options.ns, qname))
+            .arg(message_id)
+            .arg(queue.ts + hidden_duration * 1000)
+            .invoke_async::<_, bool>(&mut self.connection.0)
+            .await?;
+
+        Ok(())
     }
 
-    pub fn create_queue_async() {
-        unimplemented!();
+    pub async fn create_queue_async(
+        &mut self,
+        qname: &str,
+        seconds_hidden: Option<u32>,
+        delay: Option<u32>,
+        maxsize: Option<i32>,
+    ) -> Result<(), RsmqError> {
+
+        valid_name_format(qname)?;
+
+        let key = format!("{}{}:Q", self.options.ns, qname);
+        let seconds_hidden = seconds_hidden.unwrap_or(30);
+        let delay = delay.unwrap_or(0);
+        let maxsize = maxsize.unwrap_or(65536);
+
+        number_in_range(seconds_hidden, 0, 9_999_999)?;
+        number_in_range(delay, 0, 9_999_999)?;
+        if let Err(error) = number_in_range(maxsize, 1024, 65536) {
+            if maxsize != -1 {
+                // TODO: Create another error in order to explain that -1 is allowed
+                return Err(error);
+            }
+        }
+
+        let time: (u64, u64) = redis::cmd("TIME")
+            .query_async(&mut self.connection.0)
+            .await?;
+
+        let results: (bool, bool, bool, bool, bool) = pipe()
+            .cmd("HSETNX")
+            .arg(&key)
+            .arg("vt")
+            .arg(seconds_hidden)
+            .cmd("HSETNX")
+            .arg(&key)
+            .arg("delay")
+            .arg(delay)
+            .cmd("HSETNX")
+            .arg(&key)
+            .arg("maxsize")
+            .arg(maxsize)
+            .cmd("HSETNX")
+            .arg(&key)
+            .arg("created")
+            .arg(time.0)
+            .cmd("HSETNX")
+            .arg(&key)
+            .arg("modified")
+            .arg(time.0)
+            .query_async(&mut self.connection.0)
+            .await?;
+
+        if !results.0 {
+            return Err(QueueExists {}.into());
+        }
+
+        redis::cmd("SADD")
+            .arg(format!("{}QUEUES", self.options.ns))
+            .arg(qname)
+            .query_async(&mut self.connection.0)
+            .await?;
+
+        Ok(())
     }
 
-    pub fn delete_message_async() {
-        unimplemented!();
+    pub async fn delete_message_async(&mut self, qname: &str, id: &str) -> Result<bool, RsmqError> {
+        let key = format!("{}{}", self.options.ns, qname);
+
+        let results: (u16, u16) = pipe()
+            .cmd("ZREM")
+            .arg(&key)
+            .arg(id)
+            .cmd("HDEL")
+            .arg(format!("{}:Q", &key))
+            .arg(id)
+            .arg(format!("{}:rc", id))
+            .arg(format!("{}:fr", id))
+            .query_async(&mut self.connection.0)
+            .await?;
+
+        if results.0 == 1 && results.1 > 0 {
+            return Ok(true);
+        }
+
+        Ok(false)
     }
 
-    pub fn delete_queue_async() {
-        unimplemented!();
+    pub async fn delete_queue_async(&mut self, qname: &str) -> Result<(), RsmqError> {
+        let key = format!("{}{}", self.options.ns, qname);
+
+        let results: (u16, u16) = pipe()
+            .cmd("DEL")
+            .arg(format!("{}:Q", &key))
+            .arg(key)
+            .cmd("SREM")
+            .arg(format!("{}QUEUES", self.options.ns))
+            .arg(qname)
+            .query_async(&mut self.connection.0)
+            .await?;
+
+        if results.0 == 0 {
+            return Err(QueueNotFound {}.into());
+        }
+
+        Ok(())
     }
 
-    pub fn get_queue_attributes_async() {
-        unimplemented!();
+    pub async fn get_queue_attributes_async(
+        &mut self,
+        qname: &str,
+    ) -> Result<RsmqQueueAttributes, RsmqError> {
+        let key = format!("{}{}", self.options.ns, qname);
+
+        let time: (u64, u64) = redis::cmd("TIME")
+            .query_async(&mut self.connection.0)
+            .await?;
+
+        let result: (Vec<u64>, u64, u64) = pipe()
+            .cmd("HMGET")
+            .arg(format!("{}:Q", key))
+            .arg("vt")
+            .arg("delay")
+            .arg("maxsize")
+            .arg("totalrecv")
+            .arg("totalsent")
+            .arg("created")
+            .arg("modified")
+            .cmd("ZCARD")
+            .arg(&key)
+            .cmd("ZCOUNT")
+            .arg(&key)
+            .arg(time.0 * 1000)
+            .arg("+inf")
+            .query_async(&mut self.connection.0)
+            .await?;
+
+        if result.0.is_empty() {
+            return Err(QueueNotFound {}.into());
+        }
+
+        Ok(RsmqQueueAttributes {
+            vt: *result.0.get(0).unwrap_or(&0),
+            delay: *result.0.get(1).unwrap_or(&0),
+            maxsize: *result.0.get(2).unwrap_or(&0),
+            totalrecv: *result.0.get(3).unwrap_or(&0),
+            totalsent: *result.0.get(4).unwrap_or(&0),
+            created: *result.0.get(5).unwrap_or(&0),
+            modified: *result.0.get(6).unwrap_or(&0),
+            msgs: result.1,
+            hiddenmsgs: result.2,
+        })
     }
 
-    pub fn list_queues_async() {
-        unimplemented!();
+    pub async fn list_queues_async(&mut self) -> Result<Vec<String>, RsmqError> {
+        let queues = redis::cmd("SMEMBERS")
+            .arg(format!("{}QUEUES", self.options.ns))
+            .query_async::<_, Vec<String>>(&mut self.connection.0)
+            .await?;
+
+        Ok(queues)
     }
 
-    pub fn pop_message_async() {
-        unimplemented!();
+    pub async fn pop_message_async(&mut self, qname: &str) -> Result<RsmqMessage, RsmqError> {
+        let queue = self.get_queue(qname, false).await?;
+
+        let result: (String, String, u64, u64) = POP_MESSAGE
+            .arg(2)
+            .arg(format!("{}{}", self.options.ns, qname))
+            .arg(queue.ts)
+            .invoke_async(&mut self.connection.0)
+            .await?;
+
+        Ok(RsmqMessage {
+            id: result.0.clone(),
+            message: result.1,
+            rc: result.2,
+            fr: result.3,
+            sent: u64::from_str_radix(&result.0[0..10], 36).unwrap_or(0),
+        })
     }
 
-    pub fn receive_message_async() {
-        unimplemented!();
+    pub async fn receive_message_async(
+        &mut self,
+        qname: &str,
+        hidden_duration: Option<u64>,
+    ) -> Result<RsmqMessage, RsmqError> {
+        let queue = self.get_queue(qname, false).await?;
+
+        let hidden_duration = hidden_duration.unwrap_or(queue.vt) * 1000;
+
+        number_in_range(hidden_duration, 0, 9_999_999)?;
+
+        let result: (String, String, u64, u64) = RECEIVE_MESSAGE
+            .arg(3)
+            .arg(format!("{}{}", self.options.ns, qname))
+            .arg(queue.ts)
+            .arg(queue.ts + hidden_duration)
+            .invoke_async(&mut self.connection.0)
+            .await?;
+
+        Ok(RsmqMessage {
+            id: result.0.clone(),
+            message: result.1,
+            rc: result.2,
+            fr: result.3,
+            sent: u64::from_str_radix(&result.0[0..10], 36).unwrap_or(0),
+        })
     }
 
-    pub fn send_message_async() {
-        unimplemented!();
+    pub async fn send_message_async(
+        &mut self,
+        qname: &str,
+        message: &str,
+        delay: Option<u64>,
+    ) -> Result<String, RsmqError> {
+        let queue = self.get_queue(qname, true).await?;
+        let delay = delay.unwrap_or(queue.delay) * 1000;
+        let key = format!("{}{}", self.options.ns, qname);
+
+        number_in_range(delay, 0, 9_999_999)?;
+
+        if message.len() as u64 > queue.maxsize {
+            return Err(MessageTooLong {}.into());
+        }
+
+        let queue_uid = queue.uid.unwrap();
+        let queue_key = format!("{}:Q", key);
+
+        let mut piping = pipe();
+
+        let mut commands = piping
+            .cmd("ZADD")
+            .arg(&key)
+            .arg(queue.ts + delay)
+            .arg(&queue_uid)
+            .cmd("HSET")
+            .arg(&queue_key)
+            .arg(&queue_uid)
+            .arg(message)
+            .cmd("HINCRBY")
+            .arg(&queue_key)
+            .arg("totalsent")
+            .arg(1_u64);
+
+        if self.options.realtime {
+            commands = commands.cmd("ZCARD").arg(&key);
+        }
+
+        let result: (u64, u64, i64, u64) = commands.query_async(&mut self.connection.0).await?;
+
+        if self.options.realtime {
+            redis::cmd("PUBLISH")
+                .arg(format!("{}rt:{}", self.options.ns, qname))
+                .arg(result.3)
+                .query_async::<_, Vec<String>>(&mut self.connection.0)
+                .await?;
+        }
+
+        Ok(queue_uid)
     }
 
-    pub fn set_queue_attributes_async() {
-        unimplemented!();
+    pub async fn set_queue_attributes_async(
+        &mut self,
+        qname: &str,
+        hidden_duration: Option<u64>,
+        delay: Option<u64>,
+        maxsize: Option<i64>,
+    ) -> Result<RsmqQueueAttributes, RsmqError> {
+        self.get_queue(qname, false).await?;
+
+        let queue_name = format!("{}{}:Q", self.options.ns, qname);
+
+
+        let time: (u64, u64) = redis::cmd("TIME")
+            .query_async(&mut self.connection.0)
+            .await?;
+
+        let mut commands = &mut pipe();
+
+        commands = commands
+            .cmd("HSET")
+            .arg(&queue_name)
+            .arg("modified")
+            .arg(time.0);
+
+        if let Some(duration) = hidden_duration {
+            number_in_range(duration, 0, 9_999_999)?;
+            commands = commands
+                .cmd("HSET")
+                .arg(&queue_name)
+                .arg("vt")
+                .arg(duration);
+        }
+
+        if let Some(delay) = delay {
+            number_in_range(delay, 0, 9_999_999)?;
+            commands = commands
+                .cmd("HSET")
+                .arg(&queue_name)
+                .arg("delay")
+                .arg(delay);
+        }
+
+        if let Some(maxsize) = maxsize {
+            if let Err(error) = number_in_range(maxsize, 1024, 65536) {
+                if maxsize != -1 {
+                    // TODO: Create another error in order to explain that -1 is allowed
+                    return Err(error);
+                }
+            }
+            commands = commands
+                .cmd("HSET")
+                .arg(&queue_name)
+                .arg("maxsize")
+                .arg(maxsize);
+        }
+
+        commands.query_async(&mut self.connection.0).await?;
+
+        self.get_queue_attributes_async(qname).await
     }
 
     async fn get_queue(&mut self, qname: &str, uid: bool) -> Result<QueueDescriptor, RsmqError> {
-        let result: (Vec<String>, (String, String)) = pipe()
+        let result: (Vec<String>, (u64, u64)) = pipe()
             .cmd("HMGET")
             .arg(format!("{}{}:Q", self.options.ns, qname))
             .arg("vt")
@@ -131,44 +456,38 @@ impl Rsmq {
             .query_async(&mut self.connection.0)
             .await?;
 
-        let hmget_result = result.0.clone();
+        let time_seconds = (result.1).0;
+        let time_microseconds = (result.1).1;
 
-        if hmget_result.get(0).is_none() || hmget_result.get(1).is_none() || hmget_result.get(2).is_none() {
-            return Err(QueueNotFound {}.into())
-        }
+        let (hmget_first, hmget_second, hmget_third) =
+            match (result.0.get(0), result.0.get(1), result.0.get(2)) {
+                (Some(v0), Some(v1), Some(v2)) => (v0, v1, v2),
+                _ => return Err(QueueNotFound {}.into()),
+            };
 
-        let ms = &match (result.1).1.len() {
-            6 => (result.1).1,
-            0..=5 => format!("{:0>6}", (result.1).1),
-            _ => {
-                let value = (result.1).1;
-                let pos = value.len() - 6;
-                value[pos..(pos+3)].to_string()
-            }
-        };
-
-        let ts = (result.1).0.clone() + &ms;
+        let ts = time_seconds * 1000 + time_microseconds / 1000;
 
         let quid = if uid {
-            let number = ((result.1).0 + ms).parse::<i64>().expect("bad data in db, cannot parse number"); 
-            Some(radix_36(number).to_string() + &Rsmq::make_id(22)) 
-        } else { None };
+            Some(radix_36(ts).to_string() + &Rsmq::make_id(22))
+        } else {
+            None
+        };
 
         Ok(QueueDescriptor {
-            vt: (result.0)[0].parse().expect("cannot parse queue vt"),
-            delay: (result.0)[1].parse().expect("cannot parse queue delay"),
-            maxsize: (result.0)[2].parse().expect("cannot parse queue maxsize"),
-            ts: ts.parse().expect("cannot parse queue ts"),
+            vt: hmget_first.parse().expect("cannot parse queue vt"),
+            delay: hmget_second.parse().expect("cannot parse queue delay"),
+            maxsize: hmget_third.parse().expect("cannot parse queue maxsize"),
+            ts,
             uid: quid,
         })
     }
 
-    fn make_id(len: u16) -> String {
+    fn make_id(len: usize) -> String {
         let possible = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
 
         let mut rng = rand::thread_rng();
 
-        let mut id = String::new();
+        let mut id = String::with_capacity(len);
 
         for _ in 0..len {
             id.push(possible.chars().choose(&mut rng).unwrap());
@@ -176,4 +495,23 @@ impl Rsmq {
 
         id
     }
+
+}
+
+fn number_in_range<T: std::cmp::PartialOrd + std::fmt::Display>(value: T, min: T, max: T) -> Result<(), RsmqError> {
+    if value >= min && value <= max {
+        Ok(())
+    } else {
+        Err(InvalidValue(format!("{}", value), format!("{}", min), format!("{}", max)).into())
+    }
+}
+
+fn valid_name_format(name: &str) -> Result<(), RsmqError> {
+    if name.is_empty() && name.len() > 160 {
+        return Err(InvalidFormat(name.to_string()).into());
+    } else {
+        name.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_');
+    }
+
+    Ok(())
 }
