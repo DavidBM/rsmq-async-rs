@@ -9,10 +9,4 @@ This crate uses async in the implementation. If you want to use it in your sync 
 
 ## Installation
 
-[https://crates.io/crates/rsmq_async](https://crates.io/crates/rsmq_async)
-
-Add in your Cargo.toml
-```
-rsmq_async = "1"
-```
-
+Check [https://crates.io/crates/rsmq_async](https://crates.io/crates/rsmq_async)
