@@ -1,14 +1,18 @@
 //! This is a port of the nodejs Redis Simple Message Queue package. It is a 1-to-1 conversion using async.
 //! 
-//! ```
-//! use rsmq::Rsmq;
-//! //...inside fn main()
-//! //Lets create the instance
-//! let rsmq = Rsmq::new(Default::default()).await?;
+//! ```rust,no_run
+//! use rsmq::{Rsmq, RsmqError};
+//!
+//! # async fn it_works() -> Result<(), RsmqError> {
+//! let mut rsmq = Rsmq::new(Default::default()).await?;
 //! 
 //! let message = rsmq.receive_message_async("myqueue", None).await?;
 //! 
-//! rsmq.delete_message_async("myqueue", message.id).await?;
+//! rsmq.delete_message_async("myqueue", &message.id).await?;
+//! 
+//! # Ok(())
+//! # }
+//! ```
 //! 
 
 mod errors;
@@ -18,6 +22,7 @@ use lazy_static::lazy_static;
 use radix_fmt::radix_36;
 use rand::seq::IteratorRandom;
 use redis::{aio::Connection, pipe, Client, Script};
+pub use errors::RsmqError;
 
 #[derive(Debug)]
 struct QueueDescriptor {

@@ -1,6 +1,6 @@
 [package]
-name = "rsmq-rs"
-version = "1.0.2"
+name = "rsmq"
+version = "1.0.3"
 authors = ["David Bonet <webbonet@gmail.com>"]
 edition = "2018"
 license = "MIT"
@@ -15,3 +15,7 @@ redis = "0.15.1"
 lazy_static = "1.4.0"
 rand = "0.7.3"
 radix_fmt = "1.0.0"
+
+[dev-dependencies.async-std]
+version = "1.4.0"
+features = ["attributes"]
