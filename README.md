@@ -4,7 +4,7 @@ RSMQ async port to rust. RSMQ is a simple redis queue system that works in any r
 
 This crate uses async in the implementation. If you want to use it in your sync code you can use tokio / async_std "block_on" method. Async was used in order to simplify the code and allow 1-to-1 port oft he JS code.
 
-![Crates.io](https://img.shields.io/crates/v/rsmq_async_) ![Crates.io](https://img.shields.io/crates/l/rsmq_async)
+![Crates.io](https://img.shields.io/crates/v/rsmq_async) ![Crates.io](https://img.shields.io/crates/l/rsmq_async)
 
 ## Installation
 
