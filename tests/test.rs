@@ -1,4 +1,4 @@
-use rsmq::{Rsmq, RsmqError};
+use rsmq_async::{Rsmq, RsmqError};
 use async_std::task;
 
 #[test]
