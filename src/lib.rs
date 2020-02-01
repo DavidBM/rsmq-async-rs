@@ -6,9 +6,11 @@
 //! # async fn it_works() -> Result<(), RsmqError> {
 //! let mut rsmq = Rsmq::new(Default::default()).await?;
 //! 
-//! let message = rsmq.receive_message_async("myqueue", None).await?;
+//! let message = rsmq.receive_message("myqueue", None).await?;
 //! 
-//! rsmq.delete_message_async("myqueue", &message.id).await?;
+//! if let Some(message) = message {
+//!     rsmq.delete_message("myqueue", &message.id).await?;
+//! }
 //! 
 //! # Ok(())
 //! # }
@@ -21,7 +23,7 @@ use errors::*;
 use lazy_static::lazy_static;
 use radix_fmt::radix_36;
 use rand::seq::IteratorRandom;
-use redis::{aio::Connection, pipe, Client, Script};
+use redis::{aio::Connection, pipe, Script};
 pub use errors::RsmqError;
 
 #[derive(Debug)]
@@ -94,7 +96,6 @@ lazy_static! {
 
 #[derive(Debug)]
 pub struct Rsmq {
-    client: Client,
     connection: RedisConnection,
     options: RsmqOptions,
 }
@@ -113,14 +114,17 @@ impl Rsmq {
 
         let connection = client.get_async_connection().await?;
 
-        Ok(Rsmq {
-            client,
-            connection: RedisConnection(connection),
-            options,
-        })
+        Ok(Rsmq::new_with_connection(options, connection))
     }
 
-    pub async fn change_message_visibility_async(
+    pub fn new_with_connection(options: RsmqOptions, connection: redis::aio::Connection) -> Rsmq {
+        Rsmq {
+            connection: RedisConnection(connection),
+            options,
+        }
+    }
+
+    pub async fn change_message_visibility(
         &mut self,
         qname: &str,
         message_id: &str,
@@ -129,19 +133,18 @@ impl Rsmq {
         number_in_range(hidden_duration, 0, 9_999_999)?;
 
         let queue = self.get_queue(qname, false).await?;
-        //options.id, q.ts + options.vt * 1000
+
         CHANGE_MESSAGE_VISIVILITY
-            .arg(3)
-            .arg(format!("{}{}", self.options.ns, qname))
-            .arg(message_id)
-            .arg(queue.ts + hidden_duration * 1000)
+            .key(format!("{}{}", self.options.ns, qname))
+            .key(message_id)
+            .key(queue.ts + hidden_duration * 1000)
             .invoke_async::<_, bool>(&mut self.connection.0)
             .await?;
 
         Ok(())
     }
 
-    pub async fn create_queue_async(
+    pub async fn create_queue(
         &mut self,
         qname: &str,
         seconds_hidden: Option<u32>,
@@ -206,7 +209,7 @@ impl Rsmq {
         Ok(())
     }
 
-    pub async fn delete_message_async(&mut self, qname: &str, id: &str) -> Result<bool, RsmqError> {
+    pub async fn delete_message(&mut self, qname: &str, id: &str) -> Result<bool, RsmqError> {
         let key = format!("{}{}", self.options.ns, qname);
 
         let results: (u16, u16) = pipe()
@@ -228,7 +231,7 @@ impl Rsmq {
         Ok(false)
     }
 
-    pub async fn delete_queue_async(&mut self, qname: &str) -> Result<(), RsmqError> {
+    pub async fn delete_queue(&mut self, qname: &str) -> Result<(), RsmqError> {
         let key = format!("{}{}", self.options.ns, qname);
 
         let results: (u16, u16) = pipe()
@@ -248,7 +251,7 @@ impl Rsmq {
         Ok(())
     }
 
-    pub async fn get_queue_attributes_async(
+    pub async fn get_queue_attributes(
         &mut self,
         qname: &str,
     ) -> Result<RsmqQueueAttributes, RsmqError> {
@@ -294,7 +297,7 @@ impl Rsmq {
         })
     }
 
-    pub async fn list_queues_async(&mut self) -> Result<Vec<String>, RsmqError> {
+    pub async fn list_queues(&mut self) -> Result<Vec<String>, RsmqError> {
         let queues = redis::cmd("SMEMBERS")
             .arg(format!("{}QUEUES", self.options.ns))
             .query_async::<_, Vec<String>>(&mut self.connection.0)
@@ -303,13 +306,12 @@ impl Rsmq {
         Ok(queues)
     }
 
-    pub async fn pop_message_async(&mut self, qname: &str) -> Result<RsmqMessage, RsmqError> {
+    pub async fn pop_message(&mut self, qname: &str) -> Result<RsmqMessage, RsmqError> {
         let queue = self.get_queue(qname, false).await?;
 
         let result: (String, String, u64, u64) = POP_MESSAGE
-            .arg(2)
-            .arg(format!("{}{}", self.options.ns, qname))
-            .arg(queue.ts)
+            .key(format!("{}{}", self.options.ns, qname))
+            .key(queue.ts)
             .invoke_async(&mut self.connection.0)
             .await?;
 
@@ -322,35 +324,34 @@ impl Rsmq {
         })
     }
 
-    pub async fn receive_message_async(
+    pub async fn receive_message(
         &mut self,
         qname: &str,
         hidden_duration: Option<u64>,
-    ) -> Result<RsmqMessage, RsmqError> {
+    ) -> Result<Option<RsmqMessage>, RsmqError> {
         let queue = self.get_queue(qname, false).await?;
 
         let hidden_duration = hidden_duration.unwrap_or(queue.vt) * 1000;
 
-        number_in_range(hidden_duration, 0, 9_999_999)?;
+        number_in_range(hidden_duration, 0, 9_999_999_000)?;
 
         let result: (String, String, u64, u64) = RECEIVE_MESSAGE
-            .arg(3)
-            .arg(format!("{}{}", self.options.ns, qname))
-            .arg(queue.ts)
-            .arg(queue.ts + hidden_duration)
+            .key(format!("{}{}", self.options.ns, qname))
+            .key(queue.ts)
+            .key(queue.ts + hidden_duration)
             .invoke_async(&mut self.connection.0)
             .await?;
 
-        Ok(RsmqMessage {
+        Ok(Some(RsmqMessage {
             id: result.0.clone(),
             message: result.1,
             rc: result.2,
             fr: result.3,
             sent: u64::from_str_radix(&result.0[0..10], 36).unwrap_or(0),
-        })
+        }))
     }
 
-    pub async fn send_message_async(
+    pub async fn send_message(
         &mut self,
         qname: &str,
         message: &str,
@@ -389,12 +390,12 @@ impl Rsmq {
             commands = commands.cmd("ZCARD").arg(&key);
         }
 
-        let result: (u64, u64, i64, u64) = commands.query_async(&mut self.connection.0).await?;
+        let result: Vec<i64> = commands.query_async(&mut self.connection.0).await?;
 
         if self.options.realtime {
             redis::cmd("PUBLISH")
                 .arg(format!("{}rt:{}", self.options.ns, qname))
-                .arg(result.3)
+                .arg(result[3])
                 .query_async::<_, Vec<String>>(&mut self.connection.0)
                 .await?;
         }
@@ -402,7 +403,7 @@ impl Rsmq {
         Ok(queue_uid)
     }
 
-    pub async fn set_queue_attributes_async(
+    pub async fn set_queue_attributes(
         &mut self,
         qname: &str,
         hidden_duration: Option<u64>,
@@ -460,7 +461,7 @@ impl Rsmq {
 
         commands.query_async(&mut self.connection.0).await?;
 
-        self.get_queue_attributes_async(qname).await
+        self.get_queue_attributes(qname).await
     }
 
     async fn get_queue(&mut self, qname: &str, uid: bool) -> Result<QueueDescriptor, RsmqError> {

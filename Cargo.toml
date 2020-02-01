@@ -1,6 +1,6 @@
 [package]
 name = "rsmq_async"
-version = "1.0.6"
+version = "2.0.0"
 authors = ["David Bonet <webbonet@gmail.com>"]
 edition = "2018"
 license = "MIT"
@@ -15,7 +15,9 @@ redis = "0.15.1"
 lazy_static = "1.4.0"
 rand = "0.7.3"
 radix_fmt = "1.0.0"
+futures = "0.3.1"
+net2 = "0.2.33"
 
-[dev-dependencies.async-std]
-version = "1.4.0"
-features = ["attributes"]
+[dev-dependencies.tokio]
+version = "0.2.11"
+features = ["rt-threaded", "macros"]

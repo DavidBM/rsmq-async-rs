@@ -1,15 +1,25 @@
-use rsmq_async::{Rsmq, RsmqError};
-use async_std::task;
+mod support;
 
-#[test]
-fn it_works() -> Result<(), RsmqError> {
-    task::block_on(async {
-        let mut rsmq = Rsmq::new(Default::default()).await?;
-        
-        let message = rsmq.receive_message_async("myqueue", None).await?;
-        
-        rsmq.delete_message_async("myqueue", &message.id).await?;
+use rsmq_async::Rsmq;
+use support::*;
 
-        Ok(())
-    })
+#[tokio::test]
+async fn it_works() {
+    let ctx = TestContext::new();
+    let connection = ctx.async_connection().await.unwrap();
+
+    let mut rsmq = Rsmq::new_with_connection(Default::default(), connection);
+
+    rsmq.create_queue("myqueue", None, None, None).await.unwrap();
+
+
+    rsmq.send_message("myqueue", "testmessage", None).await.unwrap();
+
+    let message = rsmq.receive_message("myqueue", None).await.unwrap().unwrap();
+    
+    rsmq.delete_message("myqueue", &message.id).await.unwrap();
+
+    assert_eq!(message.message, "testmessage".to_string())
+
+    //let message = rsmq.receive_message("myqueue", None).await.unwrap();
 }
