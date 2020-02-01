@@ -5,9 +5,9 @@ authors = ["David Bonet <webbonet@gmail.com>"]
 edition = "2018"
 license = "MIT"
 description = "Async RSMQ port to rust. RSMQ is a simple redis queue system that works in any redis v2.4+. It contains the same methods as the original one iin https://github.com/smrchy/rsmq"
-homepage = "https://github.com/Couragium/rsmq-async"
-repository = "https://github.com/Couragium/rsmq-async"
-documentation = "https://docs.rs/rsmq-async/"
+homepage = "https://github.com/Couragium/rsmq_async"
+repository = "https://github.com/Couragium/rsmq_async"
+documentation = "https://docs.rs/rsmq_async/"
 readme = "README.md"
 
 [dependencies]
