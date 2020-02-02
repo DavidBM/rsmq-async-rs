@@ -15,7 +15,28 @@
 //! # Ok(())
 //! # }
 //! ```
+//! Main object documentation in: <a href="struct.Rsmq.html">Rsmq<a/>
 //! 
+//! ## Realtime
+//! When [initializing](#initialize) RSMQ you can enable the realtime PUBLISH for new messages. On every new message that gets sent to RSQM via `sendMessage` a Redis PUBLISH will be issued to `{rsmq.ns}:rt:{qname}`.
+//! 
+//! Example for RSMQ with default settings:
+//! 
+//! * The queue `testQueue` already contains 5 messages.
+//! * A new message is being sent to the queue `testQueue`.
+//! * The following Redis command will be issued: `PUBLISH rsmq:rt:testQueue 6`
+//! 
+//! ### How to use the realtime option
+//! Besides the PUBLISH when a new message is sent to RSMQ nothing else will happen. Your app could use the Redis SUBSCRIBE command to be notified of new messages and issue a `receiveMessage` then. However make sure not to listen with multiple workers for new messages with SUBSCRIBE to prevent multiple simultaneous `receiveMessage` calls.  
+//! 
+//! ## Guarantees
+//! 
+//! If you want to implement "at least one delivery" guarantee, you need to receive the messages using "receive_message" and then, once the message is successfully processed, delete it with "delete_message".
+//! 
+//! If you want to implement "one or less delivery" guarantee, you can use the "pop_message" method. Be aware that you may loose (delete without processing) messages in that case. 
+//! 
+
+
 #![forbid(unsafe_code)]
 
 mod errors;
@@ -36,12 +57,18 @@ struct QueueDescriptor {
     uid: Option<String>,
 }
 
+/// Options for creating a new RSMQ instance.
 #[derive(Debug)]
 pub struct RsmqOptions {
+    /// Redis host
     pub host: String,
+    /// Redis port
     pub port: String,
+    /// If true, it will use redis pubsub to notify clients about new messages. More info in the general crate description 
     pub realtime: bool,
+    /// Redis password
     pub password: Option<String>,
+    /// RSMQ namespace (you can have several. "rsmq" by default)
     pub ns: String,
 }
 
@@ -57,25 +84,41 @@ impl Default for RsmqOptions {
     }
 }
 
+/// A new RSMQ message. You will get this when using pop_message or receive_message methods
 #[derive(Debug)]
 pub struct RsmqMessage {
+    /// Message id. Used later for change_message_visibility and delete_message
     pub id: String,
+    /// Message content. It is wrapped in an string. If you are sending other format (JSON, etc) you will need to decode the message in your code
     pub message: String,
+    /// Number of times the message was received by a client
     pub rc: u64,
+    /// Timestamp (epoch in seconds) of when was this message received
     pub fr: u64,
+    /// Timestamp (epoch in seconds) of when was this message sent
     pub sent: u64,
 }
 
+/// Struct defining a queue. They are set on "create_queue" and "set_queue_attributes"
 #[derive(Debug)]
 pub struct RsmqQueueAttributes {
+    /// How many seconds the message will be hidden when is received by a client
     pub vt: u64,
+    /// How many second will take until the message is delivered to a client since it was sent
     pub delay: u64,
+    /// Max size of the message in bytes in the queue
     pub maxsize: u64,
+    /// Number of messages received by the queue
     pub totalrecv: u64,
+    /// Number of messages sent by the queue
     pub totalsent: u64,
+    /// When was this queue created. Timestamp (epoch in seconds)
     pub created: u64,
+    /// When was this queue last modified. Timestamp (epoch in seconds)
     pub modified: u64,
+    /// How many messages the queue contains
     pub msgs: u64,
+    /// How many messages are hidden from the queue. This number depends of the "vt" attribute and messages with a different hidden time modified by "change_message_visibility" method
     pub hiddenmsgs: u64,
 }
 
@@ -95,6 +138,7 @@ lazy_static! {
         Script::new(include_str!("./redis-scripts/receiveMessage.lua"));
 }
 
+/// THe main object of this library. Creates/Handles the redis connection and contains all the methods
 #[derive(Debug)]
 pub struct Rsmq {
     connection: RedisConnection,
@@ -102,6 +146,7 @@ pub struct Rsmq {
 }
 
 impl Rsmq {
+    /// Creates a new RSMQ instance, including its connection
     pub async fn new(options: RsmqOptions) -> Result<Rsmq, RsmqError> {
         let password = if let Some(password) = options.password.clone() {
             format!("redis:{}@", password)
@@ -118,6 +163,7 @@ impl Rsmq {
         Ok(Rsmq::new_with_connection(options, connection))
     }
 
+    /// Special method for when you already have a redis-rs connection and you don't want redis_async to create a new one. 
     pub fn new_with_connection(options: RsmqOptions, connection: redis::aio::Connection) -> Rsmq {
         Rsmq {
             connection: RedisConnection(connection),
@@ -125,26 +171,34 @@ impl Rsmq {
         }
     }
 
+    /// Change the hidden time of a already sent message.
     pub async fn change_message_visibility(
         &mut self,
         qname: &str,
         message_id: &str,
-        hidden_duration: u64,
+        seconds_hidden: u64,
     ) -> Result<(), RsmqError> {
-        number_in_range(hidden_duration, 0, 9_999_999)?;
+        number_in_range(seconds_hidden, 0, 9_999_999)?;
 
         let queue = self.get_queue(qname, false).await?;
 
         CHANGE_MESSAGE_VISIVILITY
             .key(format!("{}{}", self.options.ns, qname))
             .key(message_id)
-            .key(queue.ts + hidden_duration * 1000)
+            .key(queue.ts + seconds_hidden * 1000)
             .invoke_async::<_, bool>(&mut self.connection.0)
             .await?;
 
         Ok(())
     }
 
+    /// Creates a new queue. Attributes can be later modified with "set_queue_attributes" method
+    /// 
+    /// seconds_hidden: Time the messages will be hidden when they are received with the "receive_message" method.
+    /// 
+    /// delay: Time the messages will be delayed before being delivered
+    /// 
+    /// maxsize: Maximum size in bytes of each message in the queue. Needs to be between 1024 or 65536 or -1 (unlimited size)
     pub async fn create_queue(
         &mut self,
         qname: &str,
@@ -218,6 +272,9 @@ impl Rsmq {
         Ok(())
     }
 
+    /// Deletes a message from the queue.
+    /// 
+    /// Important to use when you are using receive_message. 
     pub async fn delete_message(&mut self, qname: &str, id: &str) -> Result<bool, RsmqError> {
         let key = format!("{}{}", self.options.ns, qname);
 
@@ -240,6 +297,7 @@ impl Rsmq {
         Ok(false)
     }
 
+    /// Deletes the queue and all the messages on it
     pub async fn delete_queue(&mut self, qname: &str) -> Result<(), RsmqError> {
         let key = format!("{}{}", self.options.ns, qname);
 
@@ -260,6 +318,7 @@ impl Rsmq {
         Ok(())
     }
 
+    /// Returns the queue attributes and statistics
     pub async fn get_queue_attributes(
         &mut self,
         qname: &str,
@@ -306,6 +365,7 @@ impl Rsmq {
         })
     }
 
+    /// Returns a list of queues in the namespace
     pub async fn list_queues(&mut self) -> Result<Vec<String>, RsmqError> {
         let queues = redis::cmd("SMEMBERS")
             .arg(format!("{}QUEUES", self.options.ns))
@@ -315,6 +375,7 @@ impl Rsmq {
         Ok(queues)
     }
 
+    /// Deletes and returns a message. Be aware that using this you may end with deleted & unprocessed messages.
     pub async fn pop_message(&mut self, qname: &str) -> Result<Option<RsmqMessage>, RsmqError> {
         let queue = self.get_queue(qname, false).await?;
 
@@ -337,21 +398,22 @@ impl Rsmq {
         }))
     }
 
+    /// Returns a message. The message stays hidden for some time (defined by "seconds_hidden" argument or the queue settings). After that time, the message will be redelivered. In order to avoid the redelivery, you need to use the "dekete_message" after this function.
     pub async fn receive_message(
         &mut self,
         qname: &str,
-        hidden_duration: Option<u64>,
+        seconds_hidden: Option<u64>,
     ) -> Result<Option<RsmqMessage>, RsmqError> {
         let queue = self.get_queue(qname, false).await?;
 
-        let hidden_duration = hidden_duration.unwrap_or(queue.vt) * 1000;
+        let seconds_hidden = seconds_hidden.unwrap_or(queue.vt) * 1000;
 
-        number_in_range(hidden_duration, 0, 9_999_999_000)?;
+        number_in_range(seconds_hidden, 0, 9_999_999_000)?;
 
         let result: (bool, String, String, u64, u64) = RECEIVE_MESSAGE
             .key(format!("{}{}", self.options.ns, qname))
             .key(queue.ts)
-            .key(queue.ts + hidden_duration)
+            .key(queue.ts + seconds_hidden)
             .invoke_async(&mut self.connection.0)
             .await?;
 
@@ -368,6 +430,7 @@ impl Rsmq {
         }))
     }
 
+    /// Sends a message to the queue. The message will be delayed some time (controlled by the "delayed" argument or the queue settings) before being delivered to a client. 
     pub async fn send_message(
         &mut self,
         qname: &str,
@@ -420,10 +483,17 @@ impl Rsmq {
         Ok(queue_uid)
     }
 
+    /// Modify the queue attributes. Keep in mind that "seconds_hidden" and "delay" can be overwritten when the message is sent. "seconds_hidden" can be changed by the method "change_message_visibility"
+    /// 
+    /// seconds_hidden: Time the messages will be hidden when they are received with the "receive_message" method.
+    /// 
+    /// delay: Time the messages will be delayed before being delivered
+    /// 
+    /// maxsize: Maximum size in bytes of each message in the queue. Needs to be between 1024 or 65536 or -1 (unlimited size)
     pub async fn set_queue_attributes(
         &mut self,
         qname: &str,
-        hidden_duration: Option<u64>,
+        seconds_hidden: Option<u64>,
         delay: Option<u64>,
         maxsize: Option<i64>,
     ) -> Result<RsmqQueueAttributes, RsmqError> {
@@ -444,7 +514,7 @@ impl Rsmq {
             .arg("modified")
             .arg(time.0);
 
-        if let Some(duration) = hidden_duration {
+        if let Some(duration) = seconds_hidden {
             number_in_range(duration, 0, 9_999_999)?;
             commands = commands
                 .cmd("HSET")
