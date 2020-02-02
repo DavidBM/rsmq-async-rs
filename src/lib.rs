@@ -306,22 +306,26 @@ impl Rsmq {
         Ok(queues)
     }
 
-    pub async fn pop_message(&mut self, qname: &str) -> Result<RsmqMessage, RsmqError> {
+    pub async fn pop_message(&mut self, qname: &str) -> Result<Option<RsmqMessage>, RsmqError> {
         let queue = self.get_queue(qname, false).await?;
 
-        let result: (String, String, u64, u64) = POP_MESSAGE
+        let result: (bool, String, String, u64, u64) = POP_MESSAGE
             .key(format!("{}{}", self.options.ns, qname))
             .key(queue.ts)
             .invoke_async(&mut self.connection.0)
             .await?;
 
-        Ok(RsmqMessage {
-            id: result.0.clone(),
-            message: result.1,
-            rc: result.2,
-            fr: result.3,
-            sent: u64::from_str_radix(&result.0[0..10], 36).unwrap_or(0),
-        })
+        if !result.0 {
+            return Ok(None);
+        }
+
+        Ok(Some(RsmqMessage {
+            id: result.1.clone(),
+            message: result.2,
+            rc: result.3,
+            fr: result.4,
+            sent: u64::from_str_radix(&result.1[0..10], 36).unwrap_or(0),
+        }))
     }
 
     pub async fn receive_message(
@@ -335,19 +339,23 @@ impl Rsmq {
 
         number_in_range(hidden_duration, 0, 9_999_999_000)?;
 
-        let result: (String, String, u64, u64) = RECEIVE_MESSAGE
+        let result: (bool, String, String, u64, u64) = RECEIVE_MESSAGE
             .key(format!("{}{}", self.options.ns, qname))
             .key(queue.ts)
             .key(queue.ts + hidden_duration)
             .invoke_async(&mut self.connection.0)
             .await?;
 
+        if !result.0 {
+            return Ok(None);
+        }
+
         Ok(Some(RsmqMessage {
-            id: result.0.clone(),
-            message: result.1,
-            rc: result.2,
-            fr: result.3,
-            sent: u64::from_str_radix(&result.0[0..10], 36).unwrap_or(0),
+            id: result.1.clone(),
+            message: result.2,
+            rc: result.3,
+            fr: result.4,
+            sent: u64::from_str_radix(&result.1[0..10], 36).unwrap_or(0),
         }))
     }
 
