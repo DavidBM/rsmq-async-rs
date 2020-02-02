@@ -10,3 +10,7 @@ This crate uses async in the implementation. If you want to use it in your sync 
 ## Installation
 
 Check [https://crates.io/crates/rsmq_async](https://crates.io/crates/rsmq_async)
+
+## Async executor
+
+For now the futures of this library are dependent of the Tokio reactor. This is because the redis-rs dependency. Once redis-rs makes Tokio optinal the same will happen to this library.

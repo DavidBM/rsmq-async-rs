@@ -16,6 +16,7 @@
 //! # }
 //! ```
 //! 
+#![forbid(unsafe_code)]
 
 mod errors;
 
@@ -172,7 +173,7 @@ impl Rsmq {
             .query_async(&mut self.connection.0)
             .await?;
 
-        let results: (bool, bool, bool, bool, bool) = pipe()
+        let results: Vec<bool> = pipe()
             .cmd("HSETNX")
             .arg(&key)
             .arg("vt")
@@ -193,10 +194,18 @@ impl Rsmq {
             .arg(&key)
             .arg("modified")
             .arg(time.0)
+            .cmd("HSETNX")
+            .arg(&key)
+            .arg("totalrecv")
+            .arg(0)
+            .cmd("HSETNX")
+            .arg(&key)
+            .arg("totalsent")
+            .arg(0)
             .query_async(&mut self.connection.0)
             .await?;
 
-        if !results.0 {
+        if !results[0] {
             return Err(QueueExists {}.into());
         }
 
