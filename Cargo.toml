@@ -1,10 +1,10 @@
 [package]
 name = "rsmq_async"
-version = "2.0.6"
+version = "2.0.7"
 authors = ["David Bonet <webbonet@gmail.com>"]
 edition = "2018"
 license = "MIT"
-description = "Async RSMQ port to rust. RSMQ is a simple redis queue system that works in any redis v2.4+. It contains the same methods as the original one iin https://github.com/smrchy/rsmq"
+description = "Async RSMQ port to rust. RSMQ is a simple redis queue system that works in any redis v2.4+. It contains the same methods as the original one in https://github.com/smrchy/rsmq"
 homepage = "https://crates.io/crates/rsmq_async"
 repository = "https://github.com/Couragium/rsmq-async-rs"
 documentation = "https://docs.rs/rsmq_async/"
@@ -22,3 +22,4 @@ net2 = "0.2.33"
 [dev-dependencies.tokio]
 version = "0.2.11"
 features = ["rt-threaded", "macros"]
+

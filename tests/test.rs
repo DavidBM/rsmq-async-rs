@@ -4,197 +4,221 @@ use rsmq_async::Rsmq;
 use rsmq_async::RsmqError::{QueueExists, QueueNotFound};
 use support::*;
 
-#[tokio::test]
-async fn send_receiving_deleting_message() {
-    let ctx = TestContext::new();
-    let connection = ctx.async_connection().await.unwrap();
-    let mut rsmq = Rsmq::new_with_connection(Default::default(), connection);
+#[test]
+fn send_receiving_deleting_message() {
+    let mut rt = tokio::runtime::Runtime::new().unwrap();
 
-    rsmq.create_queue("myqueue", None, None, None)
-        .await
-        .unwrap();
+    rt.block_on(async move {
+        let ctx = TestContext::new();
+        let connection = ctx.async_connection().await.unwrap();
+        let mut rsmq = Rsmq::new_with_connection(Default::default(), connection);
 
-    rsmq.send_message("myqueue", "testmessage", None)
-        .await
-        .unwrap();
+        rsmq.create_queue("myqueue", None, None, None)
+            .await
+            .unwrap();
 
-    let message = rsmq.receive_message("myqueue", None).await.unwrap();
-    assert!(message.is_some());
+        rsmq.send_message("myqueue", "testmessage", None)
+            .await
+            .unwrap();
 
-    let message = message.unwrap();
+        let message = rsmq.receive_message("myqueue", None).await.unwrap();
+        assert!(message.is_some());
 
-    rsmq.delete_message("myqueue", &message.id).await.unwrap();
+        let message = message.unwrap();
 
-    assert_eq!(message.message, "testmessage".to_string());
+        rsmq.delete_message("myqueue", &message.id).await.unwrap();
 
-    let message = rsmq.receive_message("myqueue", None).await.unwrap();
+        assert_eq!(message.message, "testmessage".to_string());
 
-    assert!(message.is_none());
+        let message = rsmq.receive_message("myqueue", None).await.unwrap();
+
+        assert!(message.is_none());
+    })
 }
 
-#[tokio::test]
-async fn pop_message() {
-    let ctx = TestContext::new();
-    let connection = ctx.async_connection().await.unwrap();
-    let mut rsmq = Rsmq::new_with_connection(Default::default(), connection);
+#[test]
+fn pop_message() {
+    let mut rt = tokio::runtime::Runtime::new().unwrap();
 
-    rsmq.create_queue("myqueue", None, None, None)
-        .await
-        .unwrap();
+    rt.block_on(async move {
+        let ctx = TestContext::new();
+        let connection = ctx.async_connection().await.unwrap();
+        let mut rsmq = Rsmq::new_with_connection(Default::default(), connection);
 
-    rsmq.send_message("myqueue", "testmessage", None)
-        .await
-        .unwrap();
+        rsmq.create_queue("myqueue", None, None, None)
+            .await
+            .unwrap();
 
-    let message = rsmq.pop_message("myqueue").await.unwrap();
+        rsmq.send_message("myqueue", "testmessage", None)
+            .await
+            .unwrap();
 
-    assert!(message.is_some());
+        let message = rsmq.pop_message("myqueue").await.unwrap();
 
-    let message = message.unwrap();
+        assert!(message.is_some());
 
-    assert_eq!(message.message, "testmessage");
+        let message = message.unwrap();
 
-    let message = rsmq.pop_message("myqueue").await.unwrap();
+        assert_eq!(message.message, "testmessage");
 
-    assert!(message.is_none());
+        let message = rsmq.pop_message("myqueue").await.unwrap();
+
+        assert!(message.is_none());
+    })
 }
 
-#[tokio::test]
-async fn creating_queue() {
-    let ctx = TestContext::new();
-    let connection = ctx.async_connection().await.unwrap();
-    let mut rsmq = Rsmq::new_with_connection(Default::default(), connection);
+#[test]
+fn creating_queue() {
+    let mut rt = tokio::runtime::Runtime::new().unwrap();
 
-    rsmq.create_queue("queue1", None, None, None).await.unwrap();
+    rt.block_on(async move {
+        let ctx = TestContext::new();
+        let connection = ctx.async_connection().await.unwrap();
+        let mut rsmq = Rsmq::new_with_connection(Default::default(), connection);
 
-    let queues = rsmq.list_queues().await.unwrap();
+        rsmq.create_queue("queue1", None, None, None).await.unwrap();
 
-    assert_eq!(queues, vec!("queue1"));
+        let queues = rsmq.list_queues().await.unwrap();
 
-    let result = rsmq.create_queue("queue1", None, None, None).await;
+        assert_eq!(queues, vec!("queue1"));
 
-    assert!(result.is_err());
+        let result = rsmq.create_queue("queue1", None, None, None).await;
 
-    if let Err(QueueExists(_)) = result {
-        return;
-    } else {
-        panic!()
-    }
+        assert!(result.is_err());
+
+        if let Err(QueueExists(_)) = result {
+            return;
+        } else {
+            panic!()
+        }
+    })
 }
 
-#[tokio::test]
-async fn updating_queue() {
-    let ctx = TestContext::new();
-    let connection = ctx.async_connection().await.unwrap();
-    let mut rsmq = Rsmq::new_with_connection(Default::default(), connection);
+#[test]
+fn updating_queue() {
+    let mut rt = tokio::runtime::Runtime::new().unwrap();
 
-    rsmq.create_queue("queue1", None, None, None).await.unwrap();
+    rt.block_on(async move {
+        let ctx = TestContext::new();
+        let connection = ctx.async_connection().await.unwrap();
+        let mut rsmq = Rsmq::new_with_connection(Default::default(), connection);
 
-    let attributes = rsmq.get_queue_attributes("queue1").await.unwrap();
+        rsmq.create_queue("queue1", None, None, None).await.unwrap();
 
-    assert_eq!(attributes.vt, 30);
-    assert_eq!(attributes.delay, 0);
-    assert_eq!(attributes.maxsize, 65536);
-    assert_eq!(attributes.totalrecv, 0);
-    assert_eq!(attributes.totalsent, 0);
-    assert_eq!(attributes.msgs, 0);
-    assert_eq!(attributes.hiddenmsgs, 0);
-    assert!(attributes.created > 0);
-    assert!(attributes.modified > 0);
+        let attributes = rsmq.get_queue_attributes("queue1").await.unwrap();
 
-    rsmq.set_queue_attributes("queue1", Some(45), Some(5), Some(2048))
-        .await
-        .unwrap();
+        assert_eq!(attributes.vt, 30);
+        assert_eq!(attributes.delay, 0);
+        assert_eq!(attributes.maxsize, 65536);
+        assert_eq!(attributes.totalrecv, 0);
+        assert_eq!(attributes.totalsent, 0);
+        assert_eq!(attributes.msgs, 0);
+        assert_eq!(attributes.hiddenmsgs, 0);
+        assert!(attributes.created > 0);
+        assert!(attributes.modified > 0);
 
-    let attributes = rsmq.get_queue_attributes("queue1").await.unwrap();
+        rsmq.set_queue_attributes("queue1", Some(45), Some(5), Some(2048))
+            .await
+            .unwrap();
 
-    assert_eq!(attributes.vt, 45);
-    assert_eq!(attributes.delay, 5);
-    assert_eq!(attributes.maxsize, 2048);
-    assert_eq!(attributes.totalrecv, 0);
-    assert_eq!(attributes.totalsent, 0);
-    assert_eq!(attributes.msgs, 0);
-    assert_eq!(attributes.hiddenmsgs, 0);
-    assert!(attributes.created > 0);
-    assert!(attributes.modified > 0);
+        let attributes = rsmq.get_queue_attributes("queue1").await.unwrap();
+
+        assert_eq!(attributes.vt, 45);
+        assert_eq!(attributes.delay, 5);
+        assert_eq!(attributes.maxsize, 2048);
+        assert_eq!(attributes.totalrecv, 0);
+        assert_eq!(attributes.totalsent, 0);
+        assert_eq!(attributes.msgs, 0);
+        assert_eq!(attributes.hiddenmsgs, 0);
+        assert!(attributes.created > 0);
+        assert!(attributes.modified > 0);
+    })
 }
 
-#[tokio::test]
-async fn deleting_queue() {
-    let ctx = TestContext::new();
-    let connection = ctx.async_connection().await.unwrap();
-    let mut rsmq = Rsmq::new_with_connection(Default::default(), connection);
+#[test]
+fn deleting_queue() {
+    let mut rt = tokio::runtime::Runtime::new().unwrap();
 
-    rsmq.create_queue("queue1", None, None, None).await.unwrap();
+    rt.block_on(async move {
+        let ctx = TestContext::new();
+        let connection = ctx.async_connection().await.unwrap();
+        let mut rsmq = Rsmq::new_with_connection(Default::default(), connection);
 
-    let queues = rsmq.list_queues().await.unwrap();
+        rsmq.create_queue("queue1", None, None, None).await.unwrap();
 
-    assert_eq!(queues, vec!("queue1"));
+        let queues = rsmq.list_queues().await.unwrap();
 
-    rsmq.delete_queue("queue1").await.unwrap();
+        assert_eq!(queues, vec!("queue1"));
 
-    let queues = rsmq.list_queues().await.unwrap();
+        rsmq.delete_queue("queue1").await.unwrap();
 
-    assert_eq!(queues, Vec::<String>::new());
+        let queues = rsmq.list_queues().await.unwrap();
 
-    let result = rsmq.delete_queue("queue1").await;
+        assert_eq!(queues, Vec::<String>::new());
 
-    assert!(result.is_err());
+        let result = rsmq.delete_queue("queue1").await;
 
-    if let Err(QueueNotFound(_)) = result {
-    } else {
-        panic!()
-    }
+        assert!(result.is_err());
 
-    let result = rsmq.get_queue_attributes("queue1").await;
+        if let Err(QueueNotFound(_)) = result {
+        } else {
+            panic!()
+        }
 
-    assert!(result.is_err());
+        let result = rsmq.get_queue_attributes("queue1").await;
 
-    if let Err(QueueNotFound(_)) = result {
-    } else {
-        panic!()
-    }
+        assert!(result.is_err());
 
-    let result = rsmq.set_queue_attributes("queue1", Some(45), Some(5), Some(2048)).await;
+        if let Err(QueueNotFound(_)) = result {
+        } else {
+            panic!()
+        }
 
-    assert!(result.is_err());
+        let result = rsmq.set_queue_attributes("queue1", Some(45), Some(5), Some(2048)).await;
 
-    if let Err(QueueNotFound(_)) = result {
-        return;
-    } else {
-        panic!()
-    }
+        assert!(result.is_err());
+
+        if let Err(QueueNotFound(_)) = result {
+            return;
+        } else {
+            panic!()
+        }
+    })
 }
 
-#[tokio::test]
-async fn change_message_visibility() {
-    let ctx = TestContext::new();
-    let connection = ctx.async_connection().await.unwrap();
-    let mut rsmq = Rsmq::new_with_connection(Default::default(), connection);
+#[test]
+fn change_message_visibility() {
+    let mut rt = tokio::runtime::Runtime::new().unwrap();
 
-    rsmq.create_queue("myqueue", None, None, None)
-        .await
-        .unwrap();
+    rt.block_on(async move {
+        let ctx = TestContext::new();
+        let connection = ctx.async_connection().await.unwrap();
+        let mut rsmq = Rsmq::new_with_connection(Default::default(), connection);
 
-    rsmq.send_message("myqueue", "testmessage", None)
-        .await
-        .unwrap();
+        rsmq.create_queue("myqueue", None, None, None)
+            .await
+            .unwrap();
 
-    let message = rsmq.receive_message("myqueue", None).await.unwrap();
-    assert!(message.is_some());
+        rsmq.send_message("myqueue", "testmessage", None)
+            .await
+            .unwrap();
 
-    let message_id = message.unwrap().id;
+        let message = rsmq.receive_message("myqueue", None).await.unwrap();
+        assert!(message.is_some());
 
-    let message = rsmq.receive_message("myqueue", None).await.unwrap();
-    assert!(message.is_none());
+        let message_id = message.unwrap().id;
 
-    rsmq.change_message_visibility("myqueue", &message_id, 0).await.unwrap();
+        let message = rsmq.receive_message("myqueue", None).await.unwrap();
+        assert!(message.is_none());
 
-    let ten_millis = std::time::Duration::from_millis(10);
-    std::thread::sleep(ten_millis);
+        rsmq.change_message_visibility("myqueue", &message_id, 0).await.unwrap();
 
-    let message = rsmq.receive_message("myqueue", None).await.unwrap();
-    assert!(message.is_some());
+        let ten_millis = std::time::Duration::from_millis(10);
+        std::thread::sleep(ten_millis);
 
-    assert_eq!(message_id, message.unwrap().id);
+        let message = rsmq.receive_message("myqueue", None).await.unwrap();
+        assert!(message.is_some());
+
+        assert_eq!(message_id, message.unwrap().id);
+    })
 }
