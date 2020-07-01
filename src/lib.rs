@@ -1,4 +1,5 @@
-//! This is a port of the nodejs Redis Simple Message Queue package. It is a 1-to-1 conversion using async.
+//! This is a port of the nodejs Redis Simple Message Queue package. 
+//! It is a 1-to-1 conversion using async.
 //! 
 //! ```rust,no_run
 //! use rsmq_async::{Rsmq, RsmqError};
@@ -18,7 +19,10 @@
 //! Main object documentation in: <a href="struct.Rsmq.html">Rsmq<a/>
 //! 
 //! ## Realtime
-//! When [initializing](#initialize) RSMQ you can enable the realtime PUBLISH for new messages. On every new message that gets sent to RSQM via `sendMessage` a Redis PUBLISH will be issued to `{rsmq.ns}:rt:{qname}`.
+//! 
+//! When [initializing](#initialize) RSMQ you can enable the realtime PUBLISH for 
+//! new messages. On every new message that gets sent to RSQM via `sendMessage` a 
+//! Redis PUBLISH will be issued to `{rsmq.ns}:rt:{qname}`.
 //! 
 //! Example for RSMQ with default settings:
 //! 
@@ -27,15 +31,53 @@
 //! * The following Redis command will be issued: `PUBLISH rsmq:rt:testQueue 6`
 //! 
 //! ### How to use the realtime option
-//! Besides the PUBLISH when a new message is sent to RSMQ nothing else will happen. Your app could use the Redis SUBSCRIBE command to be notified of new messages and issue a `receiveMessage` then. However make sure not to listen with multiple workers for new messages with SUBSCRIBE to prevent multiple simultaneous `receiveMessage` calls.  
+//! 
+//! Besides the PUBLISH when a new message is sent to RSMQ nothing else will happen. 
+//! Your app could use the Redis SUBSCRIBE command to be notified of new messages 
+//! and issue a `receiveMessage` then. However make sure not to listen with multiple 
+//! workers for new messages with SUBSCRIBE to prevent multiple simultaneous 
+//! `receiveMessage` calls.  
 //! 
 //! ## Guarantees
 //! 
-//! If you want to implement "at least one delivery" guarantee, you need to receive the messages using "receive_message" and then, once the message is successfully processed, delete it with "delete_message".
+//! If you want to implement "at least one delivery" guarantee, you need to receive 
+//! the messages using "receive_message" and then, once the message is successfully 
+//! processed, delete it with "delete_message".
 //! 
-//! If you want to implement "one or less delivery" guarantee, you can use the "pop_message" method. Be aware that you may loose (delete without processing) messages in that case. 
+//! ```rust,no_run
+//! use rsmq_async::Rsmq;
 //! 
-
+//! # #[tokio::main] //You can use Tokio or Async-std
+//! # async fn main() {
+//!     let mut rsmq = Rsmq::new(Default::default())
+//!         .await
+//!         .expect("connection failed");
+//! 
+//!     rsmq.create_queue("myqueue", None, None, None)
+//!         .await
+//!         .expect("failed to create queue");
+//! 
+//!     rsmq.send_message("myqueue", "testmessage", None)
+//!         .await
+//!         .expect("failed to send message");
+//! 
+//!     let message = rsmq
+//!         .receive_message("myqueue", None)
+//!         .await
+//!         .expect("cannot receive message");
+//! 
+//!     if let Some(message) = message {
+//!         rsmq.delete_message("myqueue", &message.id).await;
+//!     }
+//! # }
+//! ```
+//! ## Executor compatibility
+//! 
+//! Since version 0.16 redis dependency supports tokio and async_std executors. 
+//! By default it will guess what you are using when creating the connection. 
+//! You can check [redis](https://github.com/mitsuhiko/redis-rs/blob/master/Cargo.toml) 
+//! `Cargo.tolm` for the flags `async-std-comp` and `tokio-comp`
+//! 
 
 #![forbid(unsafe_code)]
 

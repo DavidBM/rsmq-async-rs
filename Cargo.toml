@@ -11,10 +11,10 @@ documentation = "https://docs.rs/rsmq_async/"
 readme = "README.md"
 
 [dependencies]
-redis = "0.15.1"
-lazy_static = "1.4.0"
-rand = "0.7.3"
-radix_fmt = "1.0.0"
+redis = "0.16"
+lazy_static = "1.4"
+rand = "0.7"
+radix_fmt = "1.0"
 
 [dev-dependencies]
 net2 = "0.2.33"
