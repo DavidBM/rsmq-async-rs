@@ -12,9 +12,8 @@ Check [https://crates.io/crates/rsmq_async](https://crates.io/crates/rsmq_async)
 
 ## Async executor
 
-For now the futures of this library are dependent of the Tokio reactor. This is because the redis-rs dependency. Once redis-rs makes Tokio optinal the same will happen to this library.
+Since version 0.16 [where this pull request was merged](https://github.com/mitsuhiko/redis-rs/issues/280) redis dependency supports tokio and async_std executors. By default it will guess what you are using when creating the connection. You can check [redis](https://github.com/mitsuhiko/redis-rs/blob/master/Cargo.toml) `Cargo.tolm` for the flags `async-std-comp` and `tokio-comp` in order to fice one or the other.
 
-More info in: [https://github.com/mitsuhiko/redis-rs/issues/280](https://github.com/mitsuhiko/redis-rs/issues/280)
 
 ## Example
 

@@ -1,6 +1,6 @@
 [package]
 name = "rsmq_async"
-version = "2.0.7"
+version = "2.1.0"
 authors = ["David Bonet <webbonet@gmail.com>"]
 edition = "2018"
 license = "MIT"
