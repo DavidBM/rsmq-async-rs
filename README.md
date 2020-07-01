@@ -1,9 +1,8 @@
-# RSMQ in async Rust 
+# RSMQ in async Rust
 
 RSMQ port to async rust. RSMQ is a simple redis queue system that works in any redis v2.6+. It contains the same methods as the original one in https://github.com/smrchy/rsmq
 
 This crate uses async in the implementation. If you want to use it in your sync code you can use tokio "block_on" method. Async was used in order to simplify the code and allow 1-to-1 port oft he JS code.
-
 
 [![Crates.io](https://img.shields.io/crates/v/rsmq_async)](https://crates.io/crates/rsmq_async) [![Crates.io](https://img.shields.io/crates/l/rsmq_async)](https://choosealicense.com/licenses/mit/) [![dependency status](https://deps.rs/crate/rsmq_async/2.0.6/status.svg)](https://deps.rs/crate/rsmq_async)
 
@@ -16,3 +15,33 @@ Check [https://crates.io/crates/rsmq_async](https://crates.io/crates/rsmq_async)
 For now the futures of this library are dependent of the Tokio reactor. This is because the redis-rs dependency. Once redis-rs makes Tokio optinal the same will happen to this library.
 
 More info in: [https://github.com/mitsuhiko/redis-rs/issues/280](https://github.com/mitsuhiko/redis-rs/issues/280)
+
+## Example
+
+```rust
+use rsmq_async::Rsmq;
+
+#[tokio::main]
+async fn main() {
+    let mut rsmq = Rsmq::new(Default::default())
+        .await
+        .expect("connection failed");
+
+    rsmq.create_queue("myqueue", None, None, None)
+        .await
+        .expect("failed to create queue");
+
+    rsmq.send_message("myqueue", "testmessage", None)
+        .await
+        .expect("failed to send message");
+
+    let message = rsmq
+        .receive_message("myqueue", None)
+        .await
+        .expect("cannot receive message");
+
+    if let Some(message) = message {
+        rsmq.delete_message("myqueue", &message.id).await;
+    }
+}
+```
