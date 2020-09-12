@@ -36,7 +36,7 @@
 //! Your app could use the Redis SUBSCRIBE command to be notified of new messages
 //! and issue a `receiveMessage` then. However make sure not to listen with multiple
 //! workers for new messages with SUBSCRIBE to prevent multiple simultaneous
-//! `receiveMessage` calls.  
+//! `receiveMessage` calls.
 //!
 //! ## Guarantees
 //!
@@ -100,7 +100,7 @@ struct QueueDescriptor {
 }
 
 /// Options for creating a new RSMQ instance.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct RsmqOptions {
     /// Redis host
     pub host: String,
@@ -127,7 +127,7 @@ impl Default for RsmqOptions {
 }
 
 /// A new RSMQ message. You will get this when using pop_message or receive_message methods
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct RsmqMessage {
     /// Message id. Used later for change_message_visibility and delete_message
     pub id: String,
@@ -142,7 +142,7 @@ pub struct RsmqMessage {
 }
 
 /// Struct defining a queue. They are set on "create_queue" and "set_queue_attributes"
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct RsmqQueueAttributes {
     /// How many seconds the message will be hidden when is received by a client
     pub vt: u64,
