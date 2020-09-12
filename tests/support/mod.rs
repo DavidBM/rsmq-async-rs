@@ -26,7 +26,9 @@ impl RedisServer {
             let server_port = listener.local_addr().unwrap().port();
             redis::ConnectionAddr::Tcp("127.0.0.1".to_string(), server_port)
         };
-        RedisServer::new_with_addr(addr, |cmd| cmd.spawn().expect("Error executing redis-server"))
+        RedisServer::new_with_addr(addr, |cmd| {
+            cmd.spawn().expect("Error executing redis-server")
+        })
     }
 
     pub fn new_with_addr<F: FnOnce(&mut process::Command) -> process::Child>(
@@ -115,5 +117,4 @@ impl TestContext {
     pub async fn async_connection(&self) -> redis::RedisResult<redis::aio::Connection> {
         self.client.get_async_connection().await
     }
-
 }

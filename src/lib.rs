@@ -1,94 +1,94 @@
-//! This is a port of the nodejs Redis Simple Message Queue package. 
+//! This is a port of the nodejs Redis Simple Message Queue package.
 //! It is a 1-to-1 conversion using async.
-//! 
+//!
 //! ```rust,no_run
 //! use rsmq_async::{Rsmq, RsmqError};
 //!
 //! # async fn it_works() -> Result<(), RsmqError> {
 //! let mut rsmq = Rsmq::new(Default::default()).await?;
-//! 
+//!
 //! let message = rsmq.receive_message("myqueue", None).await?;
-//! 
+//!
 //! if let Some(message) = message {
 //!     rsmq.delete_message("myqueue", &message.id).await?;
 //! }
-//! 
+//!
 //! # Ok(())
 //! # }
 //! ```
 //! Main object documentation in: <a href="struct.Rsmq.html">Rsmq<a/>
-//! 
+//!
 //! ## Realtime
-//! 
-//! When [initializing](#initialize) RSMQ you can enable the realtime PUBLISH for 
-//! new messages. On every new message that gets sent to RSQM via `sendMessage` a 
+//!
+//! When [initializing](#initialize) RSMQ you can enable the realtime PUBLISH for
+//! new messages. On every new message that gets sent to RSQM via `sendMessage` a
 //! Redis PUBLISH will be issued to `{rsmq.ns}:rt:{qname}`.
-//! 
+//!
 //! Example for RSMQ with default settings:
-//! 
+//!
 //! * The queue `testQueue` already contains 5 messages.
 //! * A new message is being sent to the queue `testQueue`.
 //! * The following Redis command will be issued: `PUBLISH rsmq:rt:testQueue 6`
-//! 
+//!
 //! ### How to use the realtime option
-//! 
-//! Besides the PUBLISH when a new message is sent to RSMQ nothing else will happen. 
-//! Your app could use the Redis SUBSCRIBE command to be notified of new messages 
-//! and issue a `receiveMessage` then. However make sure not to listen with multiple 
-//! workers for new messages with SUBSCRIBE to prevent multiple simultaneous 
+//!
+//! Besides the PUBLISH when a new message is sent to RSMQ nothing else will happen.
+//! Your app could use the Redis SUBSCRIBE command to be notified of new messages
+//! and issue a `receiveMessage` then. However make sure not to listen with multiple
+//! workers for new messages with SUBSCRIBE to prevent multiple simultaneous
 //! `receiveMessage` calls.  
-//! 
+//!
 //! ## Guarantees
-//! 
-//! If you want to implement "at least one delivery" guarantee, you need to receive 
-//! the messages using "receive_message" and then, once the message is successfully 
+//!
+//! If you want to implement "at least one delivery" guarantee, you need to receive
+//! the messages using "receive_message" and then, once the message is successfully
 //! processed, delete it with "delete_message".
-//! 
+//!
 //! ```rust,no_run
 //! use rsmq_async::Rsmq;
-//! 
+//!
 //! # #[tokio::main] //You can use Tokio or Async-std
 //! # async fn main() {
 //!     let mut rsmq = Rsmq::new(Default::default())
 //!         .await
 //!         .expect("connection failed");
-//! 
+//!
 //!     rsmq.create_queue("myqueue", None, None, None)
 //!         .await
 //!         .expect("failed to create queue");
-//! 
+//!
 //!     rsmq.send_message("myqueue", "testmessage", None)
 //!         .await
 //!         .expect("failed to send message");
-//! 
+//!
 //!     let message = rsmq
 //!         .receive_message("myqueue", None)
 //!         .await
 //!         .expect("cannot receive message");
-//! 
+//!
 //!     if let Some(message) = message {
 //!         rsmq.delete_message("myqueue", &message.id).await;
 //!     }
 //! # }
 //! ```
 //! ## Executor compatibility
-//! 
-//! Since version 0.16 redis dependency supports tokio and async_std executors. 
-//! By default it will guess what you are using when creating the connection. 
-//! You can check [redis](https://github.com/mitsuhiko/redis-rs/blob/master/Cargo.toml) 
+//!
+//! Since version 0.16 redis dependency supports tokio and async_std executors.
+//! By default it will guess what you are using when creating the connection.
+//! You can check [redis](https://github.com/mitsuhiko/redis-rs/blob/master/Cargo.toml)
 //! `Cargo.tolm` for the flags `async-std-comp` and `tokio-comp`
-//! 
+//!
 
 #![forbid(unsafe_code)]
 
 mod errors;
 
+pub use errors::RsmqError;
 use errors::*;
 use lazy_static::lazy_static;
 use radix_fmt::radix_36;
 use rand::seq::IteratorRandom;
 use redis::{aio::Connection, pipe, Script};
-pub use errors::RsmqError;
 
 #[derive(Debug)]
 struct QueueDescriptor {
@@ -106,7 +106,7 @@ pub struct RsmqOptions {
     pub host: String,
     /// Redis port
     pub port: String,
-    /// If true, it will use redis pubsub to notify clients about new messages. More info in the general crate description 
+    /// If true, it will use redis pubsub to notify clients about new messages. More info in the general crate description
     pub realtime: bool,
     /// Redis password
     pub password: Option<String>,
@@ -205,7 +205,7 @@ impl Rsmq {
         Ok(Rsmq::new_with_connection(options, connection))
     }
 
-    /// Special method for when you already have a redis-rs connection and you don't want redis_async to create a new one. 
+    /// Special method for when you already have a redis-rs connection and you don't want redis_async to create a new one.
     pub fn new_with_connection(options: RsmqOptions, connection: redis::aio::Connection) -> Rsmq {
         Rsmq {
             connection: RedisConnection(connection),
@@ -235,11 +235,11 @@ impl Rsmq {
     }
 
     /// Creates a new queue. Attributes can be later modified with "set_queue_attributes" method
-    /// 
+    ///
     /// seconds_hidden: Time the messages will be hidden when they are received with the "receive_message" method.
-    /// 
+    ///
     /// delay: Time the messages will be delayed before being delivered
-    /// 
+    ///
     /// maxsize: Maximum size in bytes of each message in the queue. Needs to be between 1024 or 65536 or -1 (unlimited size)
     pub async fn create_queue(
         &mut self,
@@ -248,7 +248,6 @@ impl Rsmq {
         delay: Option<u32>,
         maxsize: Option<i32>,
     ) -> Result<(), RsmqError> {
-
         valid_name_format(qname)?;
 
         let key = format!("{}{}:Q", self.options.ns, qname);
@@ -315,8 +314,8 @@ impl Rsmq {
     }
 
     /// Deletes a message from the queue.
-    /// 
-    /// Important to use when you are using receive_message. 
+    ///
+    /// Important to use when you are using receive_message.
     pub async fn delete_message(&mut self, qname: &str, id: &str) -> Result<bool, RsmqError> {
         let key = format!("{}{}", self.options.ns, qname);
 
@@ -472,7 +471,7 @@ impl Rsmq {
         }))
     }
 
-    /// Sends a message to the queue. The message will be delayed some time (controlled by the "delayed" argument or the queue settings) before being delivered to a client. 
+    /// Sends a message to the queue. The message will be delayed some time (controlled by the "delayed" argument or the queue settings) before being delivered to a client.
     pub async fn send_message(
         &mut self,
         qname: &str,
@@ -526,11 +525,11 @@ impl Rsmq {
     }
 
     /// Modify the queue attributes. Keep in mind that "seconds_hidden" and "delay" can be overwritten when the message is sent. "seconds_hidden" can be changed by the method "change_message_visibility"
-    /// 
+    ///
     /// seconds_hidden: Time the messages will be hidden when they are received with the "receive_message" method.
-    /// 
+    ///
     /// delay: Time the messages will be delayed before being delivered
-    /// 
+    ///
     /// maxsize: Maximum size in bytes of each message in the queue. Needs to be between 1024 or 65536 or -1 (unlimited size)
     pub async fn set_queue_attributes(
         &mut self,
@@ -542,7 +541,6 @@ impl Rsmq {
         self.get_queue(qname, false).await?;
 
         let queue_name = format!("{}{}:Q", self.options.ns, qname);
-
 
         let time: (u64, u64) = redis::cmd("TIME")
             .query_async(&mut self.connection.0)
@@ -643,10 +641,13 @@ impl Rsmq {
 
         id
     }
-
 }
 
-fn number_in_range<T: std::cmp::PartialOrd + std::fmt::Display>(value: T, min: T, max: T) -> Result<(), RsmqError> {
+fn number_in_range<T: std::cmp::PartialOrd + std::fmt::Display>(
+    value: T,
+    min: T,
+    max: T,
+) -> Result<(), RsmqError> {
     if value >= min && value <= max {
         Ok(())
     } else {
@@ -658,7 +659,8 @@ fn valid_name_format(name: &str) -> Result<(), RsmqError> {
     if name.is_empty() && name.len() > 160 {
         return Err(InvalidFormat(name.to_string()).into());
     } else {
-        name.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_');
+        name.chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_');
     }
 
     Ok(())

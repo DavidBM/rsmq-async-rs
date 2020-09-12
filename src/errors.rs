@@ -1,5 +1,5 @@
-use std::{error::Error, fmt};
 use redis::RedisError;
+use std::{error::Error, fmt};
 
 #[derive(Debug)]
 pub struct NoAttributeSupplied;
@@ -41,13 +41,7 @@ impl Error for InvalidValue {}
 
 impl fmt::Display for InvalidValue {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(
-            f,
-            "{} must be between {} and {}",
-            self.0,
-            self.1,
-            self.2
-        )
+        write!(f, "{} must be between {} and {}", self.0, self.1, self.2)
     }
 }
 
@@ -97,67 +91,86 @@ impl fmt::Display for QueueExists {
 
 #[derive(Debug)]
 pub enum RsmqError {
-	NoAttributeSupplied(NoAttributeSupplied),
-	MissingParameter(MissingParameter),
-	InvalidFormat(InvalidFormat),
-	InvalidValue(InvalidValue),
-	MessageNotString(MessageNotString),
-	MessageTooLong(MessageTooLong),
-	QueueNotFound(QueueNotFound),
-	QueueExists(QueueExists),
-	RedisError(RedisError),
+    NoAttributeSupplied(NoAttributeSupplied),
+    MissingParameter(MissingParameter),
+    InvalidFormat(InvalidFormat),
+    InvalidValue(InvalidValue),
+    MessageNotString(MessageNotString),
+    MessageTooLong(MessageTooLong),
+    QueueNotFound(QueueNotFound),
+    QueueExists(QueueExists),
+    RedisError(RedisError),
 }
 
+impl fmt::Display for RsmqError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        use RsmqError::*;
+        match *self {
+            NoAttributeSupplied(ref no_attribute_supplied) => no_attribute_supplied.fmt(f),
+            MissingParameter(ref missing_parameter) => missing_parameter.fmt(f),
+            InvalidFormat(ref invalid_format) => invalid_format.fmt(f),
+            InvalidValue(ref invalid_value) => invalid_value.fmt(f),
+            MessageNotString(ref message_not_string) => message_not_string.fmt(f),
+            MessageTooLong(ref message_too_long) => message_too_long.fmt(f),
+            QueueNotFound(ref queue_not_found) => queue_not_found.fmt(f),
+            QueueExists(ref queue_exists) => queue_exists.fmt(f),
+            RedisError(ref redis_error) => redis_error.fmt(f),
+        }
+    }
+}
+
+impl Error for RsmqError {}
+
 impl From<RedisError> for RsmqError {
-	fn from(error: RedisError) -> Self {
-		RsmqError::RedisError(error)
-	}
+    fn from(error: RedisError) -> Self {
+        RsmqError::RedisError(error)
+    }
 }
 
 impl From<NoAttributeSupplied> for RsmqError {
-	fn from(error: NoAttributeSupplied) -> Self {
-		RsmqError::NoAttributeSupplied(error)
-	}
+    fn from(error: NoAttributeSupplied) -> Self {
+        RsmqError::NoAttributeSupplied(error)
+    }
 }
 
 impl From<MissingParameter> for RsmqError {
-	fn from(error: MissingParameter) -> Self {
-		RsmqError::MissingParameter(error)
-	}
+    fn from(error: MissingParameter) -> Self {
+        RsmqError::MissingParameter(error)
+    }
 }
 
 impl From<InvalidFormat> for RsmqError {
-	fn from(error: InvalidFormat) -> Self {
-		RsmqError::InvalidFormat(error)
-	}
+    fn from(error: InvalidFormat) -> Self {
+        RsmqError::InvalidFormat(error)
+    }
 }
 
 impl From<InvalidValue> for RsmqError {
-	fn from(error: InvalidValue) -> Self {
-		RsmqError::InvalidValue(error)
-	}
+    fn from(error: InvalidValue) -> Self {
+        RsmqError::InvalidValue(error)
+    }
 }
 
 impl From<MessageNotString> for RsmqError {
-	fn from(error: MessageNotString) -> Self {
-		RsmqError::MessageNotString(error)
-	}
+    fn from(error: MessageNotString) -> Self {
+        RsmqError::MessageNotString(error)
+    }
 }
 
 impl From<MessageTooLong> for RsmqError {
-	fn from(error: MessageTooLong) -> Self {
-		RsmqError::MessageTooLong(error)
-	}
+    fn from(error: MessageTooLong) -> Self {
+        RsmqError::MessageTooLong(error)
+    }
 }
 
 impl From<QueueNotFound> for RsmqError {
-	fn from(error: QueueNotFound) -> Self {
-		RsmqError::QueueNotFound(error)
-	}
+    fn from(error: QueueNotFound) -> Self {
+        RsmqError::QueueNotFound(error)
+    }
 }
 
 impl From<QueueExists> for RsmqError {
-	fn from(error: QueueExists) -> Self {
-		RsmqError::QueueExists(error)
-	}
+    fn from(error: QueueExists) -> Self {
+        RsmqError::QueueExists(error)
+    }
 }

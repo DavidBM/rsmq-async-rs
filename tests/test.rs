@@ -174,7 +174,9 @@ fn deleting_queue() {
             panic!()
         }
 
-        let result = rsmq.set_queue_attributes("queue1", Some(45), Some(5), Some(2048)).await;
+        let result = rsmq
+            .set_queue_attributes("queue1", Some(45), Some(5), Some(2048))
+            .await;
 
         assert!(result.is_err());
 
@@ -211,7 +213,9 @@ fn change_message_visibility() {
         let message = rsmq.receive_message("myqueue", None).await.unwrap();
         assert!(message.is_none());
 
-        rsmq.change_message_visibility("myqueue", &message_id, 0).await.unwrap();
+        rsmq.change_message_visibility("myqueue", &message_id, 0)
+            .await
+            .unwrap();
 
         let ten_millis = std::time::Duration::from_millis(10);
         std::thread::sleep(ten_millis);
