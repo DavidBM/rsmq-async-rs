@@ -13,6 +13,7 @@
 //! [![dependency status](https://deps.rs/crate/rsmq_async/2.1.0/status.svg)](https://deps.rs/crate/rsmq_async)
 //!
 //! ```rust,no_run
+//! 
 //! use rsmq_async::{Rsmq, RsmqError, RsmqConnection};
 //!
 //! # async fn it_works() -> Result<(), RsmqError> {
@@ -26,6 +27,7 @@
 //!
 //! # Ok(())
 //! # }
+//! 
 //! ```
 //!
 //! Main object documentation are in: <a href="struct.Rsmq.html">Rsmq</a> and
@@ -70,9 +72,9 @@
 //! check [redis](https://github.com/mitsuhiko/redis-rs/blob/master/Cargo.toml) `Cargo.tolm` for
 //! the flags `async-std-comp` and `tokio-comp` in order to choose one or the other.
 //!
-//!## Example
+//! ## Example
 //!
-//! ```rust
+//! ```rust,no_run
 //! use rsmq_async::{Rsmq, RsmqConnection};
 //!
 //! async fn it_works() {
@@ -97,6 +99,7 @@
 //!         rsmq.delete_message("myqueue", &message.id).await;
 //!     }
 //! }
+//! 
 //! ```
 //!
 
