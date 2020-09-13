@@ -106,6 +106,8 @@ pub struct RsmqOptions {
     pub host: String,
     /// Redis port
     pub port: String,
+    /// Redis db
+    pub db: u8,
     /// If true, it will use redis pubsub to notify clients about new messages. More info in the general crate description
     pub realtime: bool,
     /// Redis password
@@ -119,6 +121,7 @@ impl Default for RsmqOptions {
         RsmqOptions {
             host: "localhost".to_string(),
             port: "6379".to_string(),
+            db: 0,
             realtime: false,
             password: None,
             ns: "rsmq".to_string(),
@@ -190,13 +193,16 @@ pub struct Rsmq {
 impl Rsmq {
     /// Creates a new RSMQ instance, including its connection
     pub async fn new(options: RsmqOptions) -> Result<Rsmq, RsmqError> {
-        let password = if let Some(password) = options.password.clone() {
+        let password = if let Some(ref password) = options.password {
             format!("redis:{}@", password)
         } else {
             "".to_string()
         };
 
-        let url = format!("redis://{}{}:{}", password, options.host, options.port);
+        let url = format!(
+            "redis://{}{}:{}/{}",
+            password, options.host, options.port, options.db
+        );
 
         let client = redis::Client::open(url)?;
 
