@@ -1,6 +1,6 @@
 [package]
 name = "rsmq_async"
-version = "2.1.0"
+version = "3.0.0"
 authors = ["David Bonet <webbonet@gmail.com>"]
 edition = "2018"
 license = "MIT"
@@ -14,13 +14,13 @@ readme = "README.md"
 lazy_static = "1.4"
 rand = "0.7"
 radix_fmt = "1.0"
-bb8-redis = "0.5.0"
+bb8 = "0.4.2"
 thiserror = "1.0.20"
+redis = "0.17.0"
+async-trait = "0.1.40"
 
 [dev-dependencies]
 net2 = "0.2.33"
-redis = "0.16.0"
 
 [dev-dependencies.tokio]
 version = "0.2.11"
-features = ["rt-threaded", "macros"]

@@ -1,12 +1,13 @@
-use bb8_redis::{bb8::RunError, redis::RedisError};
+use bb8::RunError;
+use redis::RedisError;
 use thiserror::Error as ThisError;
 
 #[derive(ThisError, Debug)]
 pub enum RsmqError {
-    #[error("Redis error: `{0:?}`")]
-    RedisError(#[from] RedisError),
     #[error("Pool run error: `{0:?}`")]
     RunError(#[from] RunError<RedisError>),
+    #[error("Redis error: `{0:?}`")]
+    RedisError(#[from] RedisError),
     #[error("No connection acquired`")]
     NoConnectionAcquired,
     #[error("No attribute was supplied")]
