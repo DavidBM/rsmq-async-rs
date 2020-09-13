@@ -32,8 +32,8 @@
 //!
 //! Main object documentation are in: <a href="struct.Rsmq.html">Rsmq</a> and
 //! <a href="struct.PooledRsmq.html">PooledRsmq</a> and they both implement the trait
-//! <a href="struct.RsmqConnection.html">RsmqConnection</a> where you can see all the RSMQ
-//! methods. Make sure you always import the trait <a href="struct.RsmqConnection.html">RsmqConnection</a>.
+//! <a href="trait.RsmqConnection.html">RsmqConnection</a> where you can see all the RSMQ
+//! methods. Make sure you always import the trait <a href="trait.RsmqConnection.html">RsmqConnection</a>.
 //!
 //! ## Installation
 //!
