@@ -76,7 +76,10 @@ impl Clone for PooledRsmq {
 }
 
 impl PooledRsmq {
-    pub async fn new(options: RsmqOptions, pool_options: PoolOptions) -> Result<PooledRsmq, RsmqError> {
+    pub async fn new(
+        options: RsmqOptions,
+        pool_options: PoolOptions,
+    ) -> Result<PooledRsmq, RsmqError> {
         let password = if let Some(ref password) = options.password {
             format!("redis:{}@", password)
         } else {
@@ -96,7 +99,7 @@ impl PooledRsmq {
         } else {
             builder
         };
-        
+
         builder = builder.min_idle(pool_options.min_idle);
 
         let pool = builder.build(manager).await.unwrap();

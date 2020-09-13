@@ -36,7 +36,7 @@
 //! ## Installation
 //!
 //! Check [https://crates.io/crates/rsmq_async](https://crates.io/crates/rsmq_async)
-//! 
+//!
 //! ## Realtime
 //!
 //! When [initializing](#initialize) RSMQ you can enable the realtime PUBLISH for
@@ -56,9 +56,9 @@
 //! If you want to implement "at least one delivery" guarantee, you need to receive
 //! the messages using "receive_message" and then, once the message is successfully
 //! processed, delete it with "delete_message".
-//! 
+//!
 //! ## Connection Pool
-//! 
+//!
 //! If you want to use a connection pool, just use <a href="struct.PooledRsmq.html">PooledRsmq</a>
 //! instad of Rsmq. It implements the RsmqConnection trait as the normal Rsmq.
 //!
