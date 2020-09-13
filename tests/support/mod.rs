@@ -26,7 +26,9 @@ impl RedisServer {
             let server_port = listener.local_addr().unwrap().port();
             redis::ConnectionAddr::Tcp("127.0.0.1".to_string(), server_port)
         };
-        RedisServer::new_with_addr(addr, |cmd| cmd.spawn().expect("Error executing redis-server"))
+        RedisServer::new_with_addr(addr, |cmd| {
+            cmd.spawn().expect("Error executing redis-server")
+        })
     }
 
     pub fn new_with_addr<F: FnOnce(&mut process::Command) -> process::Child>(
@@ -47,6 +49,7 @@ impl RedisServer {
             redis::ConnectionAddr::Unix(ref path) => {
                 cmd.arg("--port").arg("0").arg("--unixsocket").arg(&path);
             }
+            _ => panic!("Not TLS support for the tests"),
         };
 
         RedisServer {
@@ -87,6 +90,7 @@ impl TestContext {
             addr: Box::new(server.get_client_addr().clone()),
             db: 0,
             passwd: None,
+            username: None,
         })
         .unwrap();
         let mut con;
@@ -115,5 +119,4 @@ impl TestContext {
     pub async fn async_connection(&self) -> redis::RedisResult<redis::aio::Connection> {
         self.client.get_async_connection().await
     }
-
 }
