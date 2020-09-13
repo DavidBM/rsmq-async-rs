@@ -1,7 +1,6 @@
 mod support;
 
-use rsmq_async::Rsmq;
-use rsmq_async::RsmqError::{QueueExists, QueueNotFound};
+use rsmq_async::{Rsmq, RsmqError};
 use support::*;
 
 #[test]
@@ -10,8 +9,7 @@ fn send_receiving_deleting_message() {
 
     rt.block_on(async move {
         let ctx = TestContext::new();
-        let connection = ctx.async_connection().await.unwrap();
-        let mut rsmq = Rsmq::new_with_connection(Default::default(), connection);
+        let mut rsmq = Rsmq::new(Default::default()).await.unwrap();
 
         rsmq.create_queue("myqueue", None, None, None)
             .await
@@ -42,8 +40,7 @@ fn pop_message() {
 
     rt.block_on(async move {
         let ctx = TestContext::new();
-        let connection = ctx.async_connection().await.unwrap();
-        let mut rsmq = Rsmq::new_with_connection(Default::default(), connection);
+        let mut rsmq = Rsmq::new(Default::default()).await.unwrap();
 
         rsmq.create_queue("myqueue", None, None, None)
             .await
@@ -73,8 +70,7 @@ fn creating_queue() {
 
     rt.block_on(async move {
         let ctx = TestContext::new();
-        let connection = ctx.async_connection().await.unwrap();
-        let mut rsmq = Rsmq::new_with_connection(Default::default(), connection);
+        let mut rsmq = Rsmq::new(Default::default()).await.unwrap();
 
         rsmq.create_queue("queue1", None, None, None).await.unwrap();
 
@@ -86,7 +82,7 @@ fn creating_queue() {
 
         assert!(result.is_err());
 
-        if let Err(QueueExists(_)) = result {
+        if let Err(RsmqError::QueueExists) = result {
             return;
         } else {
             panic!()
@@ -100,8 +96,7 @@ fn updating_queue() {
 
     rt.block_on(async move {
         let ctx = TestContext::new();
-        let connection = ctx.async_connection().await.unwrap();
-        let mut rsmq = Rsmq::new_with_connection(Default::default(), connection);
+        let mut rsmq = Rsmq::new(Default::default()).await.unwrap();
 
         rsmq.create_queue("queue1", None, None, None).await.unwrap();
 
@@ -141,8 +136,7 @@ fn deleting_queue() {
 
     rt.block_on(async move {
         let ctx = TestContext::new();
-        let connection = ctx.async_connection().await.unwrap();
-        let mut rsmq = Rsmq::new_with_connection(Default::default(), connection);
+        let mut rsmq = Rsmq::new(Default::default()).await.unwrap();
 
         rsmq.create_queue("queue1", None, None, None).await.unwrap();
 
@@ -160,7 +154,7 @@ fn deleting_queue() {
 
         assert!(result.is_err());
 
-        if let Err(QueueNotFound(_)) = result {
+        if let Err(RsmqError::QueueNotFound) = result {
         } else {
             panic!()
         }
@@ -169,7 +163,7 @@ fn deleting_queue() {
 
         assert!(result.is_err());
 
-        if let Err(QueueNotFound(_)) = result {
+        if let Err(RsmqError::QueueNotFound) = result {
         } else {
             panic!()
         }
@@ -180,7 +174,7 @@ fn deleting_queue() {
 
         assert!(result.is_err());
 
-        if let Err(QueueNotFound(_)) = result {
+        if let Err(RsmqError::QueueNotFound) = result {
             return;
         } else {
             panic!()
@@ -194,8 +188,7 @@ fn change_message_visibility() {
 
     rt.block_on(async move {
         let ctx = TestContext::new();
-        let connection = ctx.async_connection().await.unwrap();
-        let mut rsmq = Rsmq::new_with_connection(Default::default(), connection);
+        let mut rsmq = Rsmq::new(Default::default()).await.unwrap();
 
         rsmq.create_queue("myqueue", None, None, None)
             .await

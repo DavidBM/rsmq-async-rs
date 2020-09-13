@@ -1,5 +1,4 @@
 use net2;
-use redis;
 use std::fs;
 use std::process;
 use std::thread::sleep;
