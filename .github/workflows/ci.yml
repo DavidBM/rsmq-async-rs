@@ -17,9 +17,7 @@ jobs:
       uses: actions/checkout@v1
     
     - name: Install Redis server
-      with:
-        command: apt
-        args: install redis-server
+      run: apt install redis-server
 
     - name: Install Rust toolchain
       uses: actions-rs/toolchain@v1
