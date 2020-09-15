@@ -12,7 +12,8 @@ simplify the code and allow 1-to-1 port oft he JS code.
 
 [![Crates.io](https://img.shields.io/crates/v/rsmq_async)](https://crates.io/crates/rsmq_async)
 [![Crates.io](https://img.shields.io/crates/l/rsmq_async)](https://choosealicense.com/licenses/mit/)
-[![dependency status](https://deps.rs/crate/rsmq_async/2.1.0/status.svg)](https://deps.rs/crate/rsmq_async)
+[![dependency status](https://deps.rs/crate/rsmq_async/3.0.1/status.svg)](https://deps.rs/crate/rsmq_async)
+[![Docs](https://img.shields.io/badge/docs-latest-blue.svg?style=flat-square)](https://docs.rs/rsmq_async)
 
 ```rust,no_run
 
@@ -29,10 +30,10 @@ if let Some(message) = message {
 
 ```
 
-Main object documentation are in: <a href="struct.Rsmq.html">Rsmq</a> and
-<a href="struct.PooledRsmq.html">PooledRsmq</a> and they both implement the trait
-<a href="struct.RsmqConnection.html">RsmqConnection</a> where you can see all the RSMQ
-methods. Make sure you always import the trait <a href="struct.RsmqConnection.html">RsmqConnection</a>.
+Main object documentation are in: <a href="https://docs.rs/rsmq_async/3.0.1/rsmq_async/struct.Rsmq.html">Rsmq</a> and
+<a href="https://docs.rs/rsmq_async/3.0.1/rsmq_async/struct.PooledRsmq.html">PooledRsmq</a> and they both implement the trait
+<a href="https://docs.rs/rsmq_async/3.0.1/rsmq_async/trait.RsmqConnection.html">RsmqConnection</a> where you can see all the RSMQ
+methods. Make sure you always import the trait <a href="https://docs.rs/rsmq_async/3.0.1/rsmq_async/trait.RsmqConnection.html">RsmqConnection</a>.
 
 ## Installation
 
@@ -60,7 +61,7 @@ processed, delete it with "delete_message".
 
 ## Connection Pool
 
-If you want to use a connection pool, just use <a href="struct.PooledRsmq.html">PooledRsmq</a>
+If you want to use a connection pool, just use <a href="https://docs.rs/rsmq_async/3.0.1/rsmq_async/struct.PooledRsmq.html">PooledRsmq</a>
 instad of Rsmq. It implements the RsmqConnection trait as the normal Rsmq.
 
 ## Executor compatibility
