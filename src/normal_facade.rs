@@ -1,7 +1,7 @@
-use crate::error::RsmqError;
 use crate::functions::RsmqFunctions;
 use crate::r#trait::RsmqConnection;
 use crate::types::{RsmqMessage, RsmqOptions, RsmqQueueAttributes};
+use crate::RsmqResult;
 use core::marker::PhantomData;
 
 struct RedisConnection(redis::aio::Connection);
@@ -20,7 +20,7 @@ pub struct Rsmq {
 
 impl Rsmq {
     /// Creates a new RSMQ instance, including its connection
-    pub async fn new(options: RsmqOptions) -> Result<Rsmq, RsmqError> {
+    pub async fn new(options: RsmqOptions) -> RsmqResult<Rsmq> {
         let password = if let Some(password) = options.password.clone() {
             format!("redis:{}@", password)
         } else {
@@ -59,7 +59,7 @@ impl RsmqConnection for Rsmq {
         qname: &str,
         message_id: &str,
         seconds_hidden: u64,
-    ) -> Result<(), RsmqError> {
+    ) -> RsmqResult<()> {
         self.functions
             .change_message_visibility(&mut self.connection.0, qname, message_id, seconds_hidden)
             .await
@@ -71,7 +71,7 @@ impl RsmqConnection for Rsmq {
         seconds_hidden: Option<u32>,
         delay: Option<u32>,
         maxsize: Option<i32>,
-    ) -> Result<(), RsmqError> {
+    ) -> RsmqResult<()> {
         self.functions
             .create_queue(
                 &mut self.connection.0,
@@ -83,30 +83,27 @@ impl RsmqConnection for Rsmq {
             .await
     }
 
-    async fn delete_message(&mut self, qname: &str, id: &str) -> Result<bool, RsmqError> {
+    async fn delete_message(&mut self, qname: &str, id: &str) -> RsmqResult<bool> {
         self.functions
             .delete_message(&mut self.connection.0, qname, id)
             .await
     }
-    async fn delete_queue(&mut self, qname: &str) -> Result<(), RsmqError> {
+    async fn delete_queue(&mut self, qname: &str) -> RsmqResult<()> {
         self.functions
             .delete_queue(&mut self.connection.0, qname)
             .await
     }
-    async fn get_queue_attributes(
-        &mut self,
-        qname: &str,
-    ) -> Result<RsmqQueueAttributes, RsmqError> {
+    async fn get_queue_attributes(&mut self, qname: &str) -> RsmqResult<RsmqQueueAttributes> {
         self.functions
             .get_queue_attributes(&mut self.connection.0, qname)
             .await
     }
 
-    async fn list_queues(&mut self) -> Result<Vec<String>, RsmqError> {
+    async fn list_queues(&mut self) -> RsmqResult<Vec<String>> {
         self.functions.list_queues(&mut self.connection.0).await
     }
 
-    async fn pop_message(&mut self, qname: &str) -> Result<Option<RsmqMessage>, RsmqError> {
+    async fn pop_message(&mut self, qname: &str) -> RsmqResult<Option<RsmqMessage>> {
         self.functions
             .pop_message(&mut self.connection.0, qname)
             .await
@@ -116,7 +113,7 @@ impl RsmqConnection for Rsmq {
         &mut self,
         qname: &str,
         seconds_hidden: Option<u64>,
-    ) -> Result<Option<RsmqMessage>, RsmqError> {
+    ) -> RsmqResult<Option<RsmqMessage>> {
         self.functions
             .receive_message(&mut self.connection.0, qname, seconds_hidden)
             .await
@@ -127,7 +124,7 @@ impl RsmqConnection for Rsmq {
         qname: &str,
         message: &str,
         delay: Option<u64>,
-    ) -> Result<String, RsmqError> {
+    ) -> RsmqResult<String> {
         self.functions
             .send_message(&mut self.connection.0, qname, message, delay)
             .await
@@ -139,7 +136,7 @@ impl RsmqConnection for Rsmq {
         seconds_hidden: Option<u64>,
         delay: Option<u64>,
         maxsize: Option<i64>,
-    ) -> Result<RsmqQueueAttributes, RsmqError> {
+    ) -> RsmqResult<RsmqQueueAttributes> {
         self.functions
             .set_queue_attributes(
                 &mut self.connection.0,

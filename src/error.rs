@@ -2,6 +2,11 @@ use bb8::RunError;
 use redis::RedisError;
 use thiserror::Error as ThisError;
 
+/// This is an alias of `Result<T, RsmqError>` for simplicity
+pub type RsmqResult<T> = Result<T, RsmqError>;
+
+/// This is the error type for any oprtation with this
+/// library. It derives `ThisError`
 #[derive(ThisError, Debug)]
 pub enum RsmqError {
     #[error("Pool run error: `{0:?}`")]
@@ -26,4 +31,12 @@ pub enum RsmqError {
     QueueNotFound,
     #[error("Queue already exists")]
     QueueExists,
+    #[error("Error when trying to create random value. This is a bug and realted with the rust random generator")]
+    BugCreatingRandonValue,
+    #[error("Cannot parse queue vt")]
+    CannotParseVT,
+    #[error("Cannot parse queue delay")]
+    CannotParseDelay,
+    #[error("Cannot parse queue maxsize")]
+    CannotParseMaxsize,
 }

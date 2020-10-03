@@ -1,7 +1,7 @@
-use crate::error::RsmqError;
 use crate::functions::RsmqFunctions;
 use crate::r#trait::RsmqConnection;
 use crate::types::{RsmqMessage, RsmqOptions, RsmqQueueAttributes};
+use crate::RsmqResult;
 use std::marker::PhantomData;
 
 use async_trait::async_trait;
@@ -76,10 +76,7 @@ impl Clone for PooledRsmq {
 }
 
 impl PooledRsmq {
-    pub async fn new(
-        options: RsmqOptions,
-        pool_options: PoolOptions,
-    ) -> Result<PooledRsmq, RsmqError> {
+    pub async fn new(options: RsmqOptions, pool_options: PoolOptions) -> RsmqResult<PooledRsmq> {
         let password = if let Some(ref password) = options.password {
             format!("redis:{}@", password)
         } else {
@@ -123,7 +120,7 @@ impl RsmqConnection for PooledRsmq {
         qname: &str,
         message_id: &str,
         seconds_hidden: u64,
-    ) -> Result<(), RsmqError> {
+    ) -> RsmqResult<()> {
         let mut conn = self.pool.get().await?;
 
         self.functions
@@ -137,7 +134,7 @@ impl RsmqConnection for PooledRsmq {
         seconds_hidden: Option<u32>,
         delay: Option<u32>,
         maxsize: Option<i32>,
-    ) -> Result<(), RsmqError> {
+    ) -> RsmqResult<()> {
         let mut conn = self.pool.get().await?;
 
         self.functions
@@ -145,32 +142,29 @@ impl RsmqConnection for PooledRsmq {
             .await
     }
 
-    async fn delete_message(&mut self, qname: &str, id: &str) -> Result<bool, RsmqError> {
+    async fn delete_message(&mut self, qname: &str, id: &str) -> RsmqResult<bool> {
         let mut conn = self.pool.get().await?;
 
         self.functions.delete_message(&mut conn, qname, id).await
     }
-    async fn delete_queue(&mut self, qname: &str) -> Result<(), RsmqError> {
+    async fn delete_queue(&mut self, qname: &str) -> RsmqResult<()> {
         let mut conn = self.pool.get().await?;
 
         self.functions.delete_queue(&mut conn, qname).await
     }
-    async fn get_queue_attributes(
-        &mut self,
-        qname: &str,
-    ) -> Result<RsmqQueueAttributes, RsmqError> {
+    async fn get_queue_attributes(&mut self, qname: &str) -> RsmqResult<RsmqQueueAttributes> {
         let mut conn = self.pool.get().await?;
 
         self.functions.get_queue_attributes(&mut conn, qname).await
     }
 
-    async fn list_queues(&mut self) -> Result<Vec<String>, RsmqError> {
+    async fn list_queues(&mut self) -> RsmqResult<Vec<String>> {
         let mut conn = self.pool.get().await?;
 
         self.functions.list_queues(&mut conn).await
     }
 
-    async fn pop_message(&mut self, qname: &str) -> Result<Option<RsmqMessage>, RsmqError> {
+    async fn pop_message(&mut self, qname: &str) -> RsmqResult<Option<RsmqMessage>> {
         let mut conn = self.pool.get().await?;
 
         self.functions.pop_message(&mut conn, qname).await
@@ -180,7 +174,7 @@ impl RsmqConnection for PooledRsmq {
         &mut self,
         qname: &str,
         seconds_hidden: Option<u64>,
-    ) -> Result<Option<RsmqMessage>, RsmqError> {
+    ) -> RsmqResult<Option<RsmqMessage>> {
         let mut conn = self.pool.get().await?;
 
         self.functions
@@ -193,7 +187,7 @@ impl RsmqConnection for PooledRsmq {
         qname: &str,
         message: &str,
         delay: Option<u64>,
-    ) -> Result<String, RsmqError> {
+    ) -> RsmqResult<String> {
         let mut conn = self.pool.get().await?;
 
         self.functions
@@ -207,7 +201,7 @@ impl RsmqConnection for PooledRsmq {
         seconds_hidden: Option<u64>,
         delay: Option<u64>,
         maxsize: Option<i64>,
-    ) -> Result<RsmqQueueAttributes, RsmqError> {
+    ) -> RsmqResult<RsmqQueueAttributes> {
         let mut conn = self.pool.get().await?;
 
         self.functions

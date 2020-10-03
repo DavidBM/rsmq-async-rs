@@ -2,7 +2,7 @@
 pub(crate) struct QueueDescriptor {
     pub vt: u64,
     pub delay: u64,
-    pub maxsize: u64,
+    pub maxsize: i64,
     pub ts: u64,
     pub uid: Option<String>,
 }
