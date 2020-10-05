@@ -1,7 +1,9 @@
+use crate::types::RedisBytes;
 use crate::{
     types::{QueueDescriptor, RsmqMessage, RsmqQueueAttributes},
     RsmqError, RsmqResult,
 };
+use core::convert::TryFrom;
 use lazy_static::lazy_static;
 use radix_fmt::radix_36;
 use rand::seq::IteratorRandom;
@@ -238,10 +240,14 @@ impl<T: ConnectionLike> RsmqFunctions<T> {
     }
 
     /// Deletes and returns a message. Be aware that using this you may end with deleted & unprocessed messages.
-    pub async fn pop_message(&self, conn: &mut T, qname: &str) -> RsmqResult<Option<RsmqMessage>> {
+    pub async fn pop_message<E: TryFrom<RedisBytes>>(
+        &self,
+        conn: &mut T,
+        qname: &str,
+    ) -> RsmqResult<Option<RsmqMessage<E>>> {
         let queue = self.get_queue(conn, qname, false).await?;
 
-        let result: (bool, String, String, u64, u64) = POP_MESSAGE
+        let result: (bool, String, Vec<u8>, u64, u64) = POP_MESSAGE
             .key(format!("{}{}", self.ns, qname))
             .key(queue.ts)
             .invoke_async(conn)
@@ -251,29 +257,34 @@ impl<T: ConnectionLike> RsmqFunctions<T> {
             return Ok(None);
         }
 
+        let message =
+            E::try_from(RedisBytes(result.2)).map_err(|_| RsmqError::CannotDecodeMessage)?;
+
         Ok(Some(RsmqMessage {
             id: result.1.clone(),
-            message: result.2,
+            message,
             rc: result.3,
             fr: result.4,
             sent: u64::from_str_radix(&result.1[0..10], 36).unwrap_or(0),
         }))
     }
 
-    /// Returns a message. The message stays hidden for some time (defined by "seconds_hidden" argument or the queue settings). After that time, the message will be redelivered. In order to avoid the redelivery, you need to use the "dekete_message" after this function.
-    pub async fn receive_message(
+    /// Returns a message. The message stays hidden for some time (defined by "seconds_hidden"
+    /// argument or the queue settings). After that time, the message will be redelivered.
+    /// In order to avoid the redelivery, you need to use the "dekete_message" after this function.
+    pub async fn receive_message<E: TryFrom<RedisBytes>>(
         &self,
         conn: &mut T,
         qname: &str,
         seconds_hidden: Option<u64>,
-    ) -> RsmqResult<Option<RsmqMessage>> {
+    ) -> RsmqResult<Option<RsmqMessage<E>>> {
         let queue = self.get_queue(conn, qname, false).await?;
 
         let seconds_hidden = seconds_hidden.unwrap_or(queue.vt) * 1000;
 
         number_in_range(seconds_hidden, 0, 9_999_999_000)?;
 
-        let result: (bool, String, String, u64, u64) = RECEIVE_MESSAGE
+        let result: (bool, String, Vec<u8>, u64, u64) = RECEIVE_MESSAGE
             .key(format!("{}{}", self.ns, qname))
             .key(queue.ts)
             .key(queue.ts + seconds_hidden)
@@ -284,9 +295,12 @@ impl<T: ConnectionLike> RsmqFunctions<T> {
             return Ok(None);
         }
 
+        let message =
+            E::try_from(RedisBytes(result.2)).map_err(|_| RsmqError::CannotDecodeMessage)?;
+
         Ok(Some(RsmqMessage {
             id: result.1.clone(),
-            message: result.2,
+            message,
             rc: result.3,
             fr: result.4,
             sent: u64::from_str_radix(&result.1[0..10], 36).unwrap_or(0),
@@ -294,11 +308,11 @@ impl<T: ConnectionLike> RsmqFunctions<T> {
     }
 
     /// Sends a message to the queue. The message will be delayed some time (controlled by the "delayed" argument or the queue settings) before being delivered to a client.
-    pub async fn send_message(
+    pub async fn send_message<E: Into<RedisBytes>>(
         &self,
         conn: &mut T,
         qname: &str,
-        message: &str,
+        message: E,
         delay: Option<u64>,
     ) -> RsmqResult<String> {
         let queue = self.get_queue(conn, qname, true).await?;
@@ -308,8 +322,10 @@ impl<T: ConnectionLike> RsmqFunctions<T> {
 
         number_in_range(delay, 0, 9_999_999)?;
 
+        let message: RedisBytes = message.into();
+
         let msg_len: i64 = message
-            .as_bytes()
+            .0
             .len()
             .try_into()
             .map_err(|_| RsmqError::MessageTooLong)?;
@@ -336,7 +352,7 @@ impl<T: ConnectionLike> RsmqFunctions<T> {
             .cmd("HSET")
             .arg(&queue_key)
             .arg(&queue_uid)
-            .arg(message)
+            .arg(message.0)
             .cmd("HINCRBY")
             .arg(&queue_key)
             .arg("totalsent")

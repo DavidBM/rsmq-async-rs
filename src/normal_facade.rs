@@ -1,6 +1,7 @@
+use core::convert::TryFrom;
 use crate::functions::RsmqFunctions;
 use crate::r#trait::RsmqConnection;
-use crate::types::{RsmqMessage, RsmqOptions, RsmqQueueAttributes};
+use crate::types::{RsmqMessage, RsmqOptions, RsmqQueueAttributes, RedisBytes};
 use crate::RsmqResult;
 use core::marker::PhantomData;
 
@@ -103,26 +104,26 @@ impl RsmqConnection for Rsmq {
         self.functions.list_queues(&mut self.connection.0).await
     }
 
-    async fn pop_message(&mut self, qname: &str) -> RsmqResult<Option<RsmqMessage>> {
+    async fn pop_message<E: TryFrom<RedisBytes>>(&mut self, qname: &str) -> RsmqResult<Option<RsmqMessage<E>>> {
         self.functions
             .pop_message(&mut self.connection.0, qname)
             .await
     }
 
-    async fn receive_message(
+    async fn receive_message<E: TryFrom<RedisBytes>>(
         &mut self,
         qname: &str,
         seconds_hidden: Option<u64>,
-    ) -> RsmqResult<Option<RsmqMessage>> {
+    ) -> RsmqResult<Option<RsmqMessage<E>>> {
         self.functions
             .receive_message(&mut self.connection.0, qname, seconds_hidden)
             .await
     }
 
-    async fn send_message(
+    async fn send_message<E: Into<RedisBytes> + Send>(
         &mut self,
         qname: &str,
-        message: &str,
+        message: E,
         delay: Option<u64>,
     ) -> RsmqResult<String> {
         self.functions

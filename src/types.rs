@@ -1,3 +1,6 @@
+use std::string::FromUtf8Error;
+use core::convert::TryFrom;
+
 #[derive(Debug)]
 pub(crate) struct QueueDescriptor {
     pub vt: u64,
@@ -39,11 +42,11 @@ impl Default for RsmqOptions {
 
 /// A new RSMQ message. You will get this when using pop_message or receive_message methods
 #[derive(Debug, Clone)]
-pub struct RsmqMessage {
+pub struct RsmqMessage<T: TryFrom<RedisBytes> = String> {
     /// Message id. Used later for change_message_visibility and delete_message
     pub id: String,
     /// Message content. It is wrapped in an string. If you are sending other format (JSON, etc) you will need to decode the message in your code
-    pub message: String,
+    pub message: T,
     /// Number of times the message was received by a client
     pub rc: u64,
     /// Timestamp (epoch in seconds) of when was this message received
@@ -73,4 +76,39 @@ pub struct RsmqQueueAttributes {
     pub msgs: u64,
     /// How many messages are hidden from the queue. This number depends of the "vt" attribute and messages with a different hidden time modified by "change_message_visibility" method
     pub hiddenmsgs: u64,
+}
+
+#[derive(Debug)]
+pub struct RedisBytes(pub(crate) Vec<u8>);
+
+impl TryFrom<RedisBytes> for String {
+    type Error = FromUtf8Error;
+
+    fn try_from(bytes: RedisBytes) -> Result<Self, Self::Error> {
+        String::from_utf8(bytes.0)
+    }
+}
+
+impl From<RedisBytes> for Vec<u8> {
+    fn from(bytes: RedisBytes) -> Vec<u8> {
+        bytes.0.into()
+    }
+}
+
+impl Into<RedisBytes> for String {
+    fn into(self) -> RedisBytes {
+        RedisBytes(self.into())
+    }
+}
+
+impl Into<RedisBytes> for &str {
+    fn into(self) -> RedisBytes {
+        RedisBytes(self.into())
+    }
+}
+
+impl Into<RedisBytes> for Vec<u8> {
+    fn into(self) -> RedisBytes {
+        RedisBytes(self.into())
+    }
 }

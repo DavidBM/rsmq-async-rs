@@ -1,3 +1,5 @@
+use crate::types::RedisBytes;
+use core::convert::TryFrom;
 use crate::functions::RsmqFunctions;
 use crate::r#trait::RsmqConnection;
 use crate::types::{RsmqMessage, RsmqOptions, RsmqQueueAttributes};
@@ -164,17 +166,17 @@ impl RsmqConnection for PooledRsmq {
         self.functions.list_queues(&mut conn).await
     }
 
-    async fn pop_message(&mut self, qname: &str) -> RsmqResult<Option<RsmqMessage>> {
+    async fn pop_message<E: TryFrom<RedisBytes>>(&mut self, qname: &str) -> RsmqResult<Option<RsmqMessage<E>>> {
         let mut conn = self.pool.get().await?;
 
         self.functions.pop_message(&mut conn, qname).await
     }
 
-    async fn receive_message(
+    async fn receive_message<E: TryFrom<RedisBytes>>(
         &mut self,
         qname: &str,
         seconds_hidden: Option<u64>,
-    ) -> RsmqResult<Option<RsmqMessage>> {
+    ) -> RsmqResult<Option<RsmqMessage<E>>> {
         let mut conn = self.pool.get().await?;
 
         self.functions
@@ -182,10 +184,10 @@ impl RsmqConnection for PooledRsmq {
             .await
     }
 
-    async fn send_message(
+    async fn send_message<E: Into<RedisBytes> + Send>(
         &mut self,
         qname: &str,
-        message: &str,
+        message: E,
         delay: Option<u64>,
     ) -> RsmqResult<String> {
         let mut conn = self.pool.get().await?;
