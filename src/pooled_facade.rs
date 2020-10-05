@@ -166,13 +166,13 @@ impl RsmqConnection for PooledRsmq {
         self.functions.list_queues(&mut conn).await
     }
 
-    async fn pop_message<E: TryFrom<RedisBytes>>(&mut self, qname: &str) -> RsmqResult<Option<RsmqMessage<E>>> {
+    async fn pop_message<E: TryFrom<RedisBytes, Error = Vec<u8>>>(&mut self, qname: &str) -> RsmqResult<Option<RsmqMessage<E>>> {
         let mut conn = self.pool.get().await?;
 
-        self.functions.pop_message(&mut conn, qname).await
+        self.functions.pop_message::<E>(&mut conn, qname).await
     }
 
-    async fn receive_message<E: TryFrom<RedisBytes>>(
+    async fn receive_message<E: TryFrom<RedisBytes, Error = Vec<u8>>>(
         &mut self,
         qname: &str,
         seconds_hidden: Option<u64>,
@@ -180,7 +180,7 @@ impl RsmqConnection for PooledRsmq {
         let mut conn = self.pool.get().await?;
 
         self.functions
-            .receive_message(&mut conn, qname, seconds_hidden)
+            .receive_message::<E>(&mut conn, qname, seconds_hidden)
             .await
     }
 

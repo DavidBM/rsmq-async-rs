@@ -41,10 +41,10 @@ pub trait RsmqConnection {
     async fn list_queues(&mut self) -> RsmqResult<Vec<String>>;
 
     /// Deletes and returns a message. Be aware that using this you may end with deleted & unprocessed messages.
-    async fn pop_message<E: TryFrom<RedisBytes>>(&mut self, qname: &str) -> RsmqResult<Option<RsmqMessage<E>>>;
+    async fn pop_message<E: TryFrom<RedisBytes, Error = Vec<u8>>>(&mut self, qname: &str) -> RsmqResult<Option<RsmqMessage<E>>>;
 
     /// Returns a message. The message stays hidden for some time (defined by "seconds_hidden" argument or the queue settings). After that time, the message will be redelivered. In order to avoid the redelivery, you need to use the "dekete_message" after this function.
-    async fn receive_message<E: TryFrom<RedisBytes>>(
+    async fn receive_message<E: TryFrom<RedisBytes, Error = Vec<u8>>>(
         &mut self,
         qname: &str,
         seconds_hidden: Option<u64>,

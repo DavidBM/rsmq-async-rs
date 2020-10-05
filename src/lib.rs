@@ -127,6 +127,20 @@
 //! like: `rsmq.receive_message::<Vec<u8>>("myqueue", None)` and transform it later to your type. (Or just implement 
 //! the TryFrom<RedisBytes> for your type and the transformation will be automatic.)
 //! 
+//! ### Example for implementing a custom type
+//! 
+//! ```rust,ignore
+//! impl TryFrom<RedisBytes> for String {
+//! 	We sacrifice the ability of recovering the original error for the ability of having the
+//! 	original data. If you know how to conserver both, let me know!
+//!     type Error = Vec<u8>; // Always set Error as Vec<u8>;
+//! 
+//!     fn try_from(bytes: RedisBytes) -> Result<Self, Self::Error> {
+//!         String::from_utf8(bytes.0).map_err(|e| e.into_bytes())
+//!     }
+//! }
+//! ```
+//! 
 
 #![forbid(unsafe_code)]
 

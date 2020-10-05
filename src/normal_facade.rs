@@ -104,19 +104,19 @@ impl RsmqConnection for Rsmq {
         self.functions.list_queues(&mut self.connection.0).await
     }
 
-    async fn pop_message<E: TryFrom<RedisBytes>>(&mut self, qname: &str) -> RsmqResult<Option<RsmqMessage<E>>> {
+    async fn pop_message<E: TryFrom<RedisBytes, Error = Vec<u8>>>(&mut self, qname: &str) -> RsmqResult<Option<RsmqMessage<E>>> {
         self.functions
-            .pop_message(&mut self.connection.0, qname)
+            .pop_message::<E>(&mut self.connection.0, qname)
             .await
     }
 
-    async fn receive_message<E: TryFrom<RedisBytes>>(
+    async fn receive_message<E: TryFrom<RedisBytes, Error = Vec<u8>>>(
         &mut self,
         qname: &str,
         seconds_hidden: Option<u64>,
     ) -> RsmqResult<Option<RsmqMessage<E>>> {
         self.functions
-            .receive_message(&mut self.connection.0, qname, seconds_hidden)
+            .receive_message::<E>(&mut self.connection.0, qname, seconds_hidden)
             .await
     }
 
