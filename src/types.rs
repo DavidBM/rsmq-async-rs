@@ -18,7 +18,7 @@ pub struct RsmqOptions {
     pub port: String,
     /// Redis db
     pub db: u8,
-    /// If true, it will use redis pubsub to notify clients about new messages. 
+    /// If true, it will use redis pubsub to notify clients about new messages.
     /// More info in the general crate description
     pub realtime: bool,
     /// Redis password
@@ -45,7 +45,7 @@ impl Default for RsmqOptions {
 pub struct RsmqMessage<T: TryFrom<RedisBytes> = String> {
     /// Message id. Used later for change_message_visibility and delete_message
     pub id: String,
-    /// Message content. It is wrapped in an string. If you are sending other 
+    /// Message content. It is wrapped in an string. If you are sending other
     /// format (JSON, etc) you will need to decode the message in your code
     pub message: T,
     /// Number of times the message was received by a client
@@ -61,7 +61,7 @@ pub struct RsmqMessage<T: TryFrom<RedisBytes> = String> {
 pub struct RsmqQueueAttributes {
     /// How many seconds the message will be hidden when is received by a client
     pub vt: u64,
-    /// How many second will take until the message is delivered to a client 
+    /// How many second will take until the message is delivered to a client
     /// since it was sent
     pub delay: u64,
     /// Max size of the message in bytes in the queue
@@ -76,8 +76,8 @@ pub struct RsmqQueueAttributes {
     pub modified: u64,
     /// How many messages the queue contains
     pub msgs: u64,
-    /// How many messages are hidden from the queue. This number depends of 
-    /// the "vt" attribute and messages with a different hidden time modified 
+    /// How many messages are hidden from the queue. This number depends of
+    /// the "vt" attribute and messages with a different hidden time modified
     /// by "change_message_visibility" method
     pub hiddenmsgs: u64,
 }
@@ -89,7 +89,7 @@ impl TryFrom<RedisBytes> for String {
     type Error = Vec<u8>;
 
     fn try_from(bytes: RedisBytes) -> Result<Self, Self::Error> {
-        // For the library user, they can just call into_bytes 
+        // For the library user, they can just call into_bytes
         // for getting the original Vec<u8>
         String::from_utf8(bytes.0).map_err(|e| e.into_bytes())
     }

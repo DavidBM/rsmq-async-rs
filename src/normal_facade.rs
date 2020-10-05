@@ -1,8 +1,8 @@
-use core::convert::TryFrom;
 use crate::functions::RsmqFunctions;
 use crate::r#trait::RsmqConnection;
-use crate::types::{RsmqMessage, RsmqOptions, RsmqQueueAttributes, RedisBytes};
+use crate::types::{RedisBytes, RsmqMessage, RsmqOptions, RsmqQueueAttributes};
 use crate::RsmqResult;
+use core::convert::TryFrom;
 use core::marker::PhantomData;
 
 struct RedisConnection(redis::aio::Connection);
@@ -104,7 +104,10 @@ impl RsmqConnection for Rsmq {
         self.functions.list_queues(&mut self.connection.0).await
     }
 
-    async fn pop_message<E: TryFrom<RedisBytes, Error = Vec<u8>>>(&mut self, qname: &str) -> RsmqResult<Option<RsmqMessage<E>>> {
+    async fn pop_message<E: TryFrom<RedisBytes, Error = Vec<u8>>>(
+        &mut self,
+        qname: &str,
+    ) -> RsmqResult<Option<RsmqMessage<E>>> {
         self.functions
             .pop_message::<E>(&mut self.connection.0, qname)
             .await

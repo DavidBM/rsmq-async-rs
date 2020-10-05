@@ -1,9 +1,9 @@
-use crate::types::RedisBytes;
-use core::convert::TryFrom;
 use crate::functions::RsmqFunctions;
 use crate::r#trait::RsmqConnection;
+use crate::types::RedisBytes;
 use crate::types::{RsmqMessage, RsmqOptions, RsmqQueueAttributes};
 use crate::RsmqResult;
+use core::convert::TryFrom;
 use std::marker::PhantomData;
 
 use async_trait::async_trait;
@@ -166,7 +166,10 @@ impl RsmqConnection for PooledRsmq {
         self.functions.list_queues(&mut conn).await
     }
 
-    async fn pop_message<E: TryFrom<RedisBytes, Error = Vec<u8>>>(&mut self, qname: &str) -> RsmqResult<Option<RsmqMessage<E>>> {
+    async fn pop_message<E: TryFrom<RedisBytes, Error = Vec<u8>>>(
+        &mut self,
+        qname: &str,
+    ) -> RsmqResult<Option<RsmqMessage<E>>> {
         let mut conn = self.pool.get().await?;
 
         self.functions.pop_message::<E>(&mut conn, qname).await
