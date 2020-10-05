@@ -10,7 +10,7 @@
 //!
 //! [![Crates.io](https://img.shields.io/crates/v/rsmq_async)](https://crates.io/crates/rsmq_async)
 //! [![Crates.io](https://img.shields.io/crates/l/rsmq_async)](https://choosealicense.com/licenses/mit/)
-//! [![dependency status](https://deps.rs/crate/rsmq_async/3.0.1/status.svg)](https://deps.rs/crate/rsmq_async)
+//! [![dependency status](https://deps.rs/crate/rsmq_async/4.0.0/status.svg)](https://deps.rs/crate/rsmq_async)
 //! [![Docs](https://img.shields.io/badge/docs-latest-blue.svg?style=flat-square)](https://docs.rs/rsmq_async)
 //!
 //! ```rust,no_run
