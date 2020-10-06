@@ -1,9 +1,12 @@
-use crate::error::RsmqError;
-use crate::types::{QueueDescriptor, RsmqMessage, RsmqQueueAttributes};
+use crate::{
+    types::{QueueDescriptor, RsmqMessage, RsmqQueueAttributes},
+    RsmqError, RsmqResult,
+};
 use lazy_static::lazy_static;
 use radix_fmt::radix_36;
 use rand::seq::IteratorRandom;
 use redis::{aio::ConnectionLike, pipe, Script};
+use std::convert::TryInto;
 
 lazy_static! {
     static ref CHANGE_MESSAGE_VISIVILITY: Script =
@@ -35,7 +38,7 @@ impl<T: ConnectionLike> RsmqFunctions<T> {
         qname: &str,
         message_id: &str,
         seconds_hidden: u64,
-    ) -> Result<(), RsmqError> {
+    ) -> RsmqResult<()> {
         let queue = self.get_queue(conn, qname, false).await?;
 
         number_in_range(seconds_hidden, 0, 9_999_999)?;
@@ -64,7 +67,7 @@ impl<T: ConnectionLike> RsmqFunctions<T> {
         seconds_hidden: Option<u32>,
         delay: Option<u32>,
         maxsize: Option<i32>,
-    ) -> Result<(), RsmqError> {
+    ) -> RsmqResult<()> {
         valid_name_format(qname)?;
 
         let key = format!("{}{}:Q", self.ns, qname);
@@ -84,6 +87,7 @@ impl<T: ConnectionLike> RsmqFunctions<T> {
         let time: (u64, u64) = redis::cmd("TIME").query_async(conn).await?;
 
         let results: Vec<bool> = pipe()
+            .atomic()
             .cmd("HSETNX")
             .arg(&key)
             .arg("vt")
@@ -131,15 +135,11 @@ impl<T: ConnectionLike> RsmqFunctions<T> {
     /// Deletes a message from the queue.
     ///
     /// Important to use when you are using receive_message.
-    pub async fn delete_message(
-        &self,
-        conn: &mut T,
-        qname: &str,
-        id: &str,
-    ) -> Result<bool, RsmqError> {
+    pub async fn delete_message(&self, conn: &mut T, qname: &str, id: &str) -> RsmqResult<bool> {
         let key = format!("{}{}", self.ns, qname);
 
         let results: (u16, u16) = pipe()
+            .atomic()
             .cmd("ZREM")
             .arg(&key)
             .arg(id)
@@ -159,10 +159,11 @@ impl<T: ConnectionLike> RsmqFunctions<T> {
     }
 
     /// Deletes the queue and all the messages on it
-    pub async fn delete_queue(&self, conn: &mut T, qname: &str) -> Result<(), RsmqError> {
+    pub async fn delete_queue(&self, conn: &mut T, qname: &str) -> RsmqResult<()> {
         let key = format!("{}{}", self.ns, qname);
 
         let results: (u16, u16) = pipe()
+            .atomic()
             .cmd("DEL")
             .arg(format!("{}:Q", &key))
             .arg(key)
@@ -184,12 +185,13 @@ impl<T: ConnectionLike> RsmqFunctions<T> {
         &self,
         conn: &mut T,
         qname: &str,
-    ) -> Result<RsmqQueueAttributes, RsmqError> {
+    ) -> RsmqResult<RsmqQueueAttributes> {
         let key = format!("{}{}", self.ns, qname);
 
         let time: (u64, u64) = redis::cmd("TIME").query_async(conn).await?;
 
         let result: (Vec<u64>, u64, u64) = pipe()
+            .atomic()
             .cmd("HMGET")
             .arg(format!("{}:Q", key))
             .arg("vt")
@@ -226,21 +228,17 @@ impl<T: ConnectionLike> RsmqFunctions<T> {
     }
 
     /// Returns a list of queues in the namespace
-    pub async fn list_queues(&self, conn: &mut T) -> Result<Vec<String>, RsmqError> {
+    pub async fn list_queues(&self, conn: &mut T) -> RsmqResult<Vec<String>> {
         let queues = redis::cmd("SMEMBERS")
             .arg(format!("{}QUEUES", self.ns))
-            .query_async::<_, Vec<String>>(conn)
+            .query_async(conn)
             .await?;
 
         Ok(queues)
     }
 
     /// Deletes and returns a message. Be aware that using this you may end with deleted & unprocessed messages.
-    pub async fn pop_message(
-        &self,
-        conn: &mut T,
-        qname: &str,
-    ) -> Result<Option<RsmqMessage>, RsmqError> {
+    pub async fn pop_message(&self, conn: &mut T, qname: &str) -> RsmqResult<Option<RsmqMessage>> {
         let queue = self.get_queue(conn, qname, false).await?;
 
         let result: (bool, String, String, u64, u64) = POP_MESSAGE
@@ -268,7 +266,7 @@ impl<T: ConnectionLike> RsmqFunctions<T> {
         conn: &mut T,
         qname: &str,
         seconds_hidden: Option<u64>,
-    ) -> Result<Option<RsmqMessage>, RsmqError> {
+    ) -> RsmqResult<Option<RsmqMessage>> {
         let queue = self.get_queue(conn, qname, false).await?;
 
         let seconds_hidden = seconds_hidden.unwrap_or(queue.vt) * 1000;
@@ -302,7 +300,7 @@ impl<T: ConnectionLike> RsmqFunctions<T> {
         qname: &str,
         message: &str,
         delay: Option<u64>,
-    ) -> Result<String, RsmqError> {
+    ) -> RsmqResult<String> {
         let queue = self.get_queue(conn, qname, true).await?;
 
         let delay = delay.unwrap_or(queue.delay) * 1000;
@@ -310,16 +308,27 @@ impl<T: ConnectionLike> RsmqFunctions<T> {
 
         number_in_range(delay, 0, 9_999_999)?;
 
-        if message.len() as u64 > queue.maxsize {
+        let msg_len: i64 = message
+            .as_bytes()
+            .len()
+            .try_into()
+            .map_err(|_| RsmqError::MessageTooLong)?;
+
+        if queue.maxsize != -1 && msg_len > queue.maxsize {
             return Err(RsmqError::MessageTooLong);
         }
 
-        let queue_uid = queue.uid.unwrap();
+        let queue_uid = match queue.uid {
+            Some(uid) => uid,
+            None => return Err(RsmqError::QueueNotFound),
+        };
+
         let queue_key = format!("{}:Q", key);
 
         let mut piping = pipe();
 
         let mut commands = piping
+            .atomic()
             .cmd("ZADD")
             .arg(&key)
             .arg(queue.ts + delay)
@@ -341,9 +350,9 @@ impl<T: ConnectionLike> RsmqFunctions<T> {
 
         if self.realtime {
             redis::cmd("PUBLISH")
-                .arg(format!("{}rt:{}", self.ns, qname))
+                .arg(format!("{}:rt:{}", self.ns, qname))
                 .arg(result[3])
-                .query_async::<_, Vec<String>>(conn)
+                .query_async(conn)
                 .await?;
         }
 
@@ -364,7 +373,7 @@ impl<T: ConnectionLike> RsmqFunctions<T> {
         seconds_hidden: Option<u64>,
         delay: Option<u64>,
         maxsize: Option<i64>,
-    ) -> Result<RsmqQueueAttributes, RsmqError> {
+    ) -> RsmqResult<RsmqQueueAttributes> {
         self.get_queue(conn, qname, false).await?;
 
         let queue_name = format!("{}{}:Q", self.ns, qname);
@@ -374,6 +383,7 @@ impl<T: ConnectionLike> RsmqFunctions<T> {
         let mut commands = &mut pipe();
 
         commands = commands
+            .atomic()
             .cmd("HSET")
             .arg(&queue_name)
             .arg("modified")
@@ -416,13 +426,9 @@ impl<T: ConnectionLike> RsmqFunctions<T> {
         self.get_queue_attributes(conn, qname).await
     }
 
-    async fn get_queue(
-        &self,
-        conn: &mut T,
-        qname: &str,
-        uid: bool,
-    ) -> Result<QueueDescriptor, RsmqError> {
+    async fn get_queue(&self, conn: &mut T, qname: &str, uid: bool) -> RsmqResult<QueueDescriptor> {
         let result: (Vec<String>, (u64, u64)) = pipe()
+            .atomic()
             .cmd("HMGET")
             .arg(format!("{}{}:Q", self.ns, qname))
             .arg("vt")
@@ -444,21 +450,25 @@ impl<T: ConnectionLike> RsmqFunctions<T> {
         let ts = time_seconds * 1000 + time_microseconds / 1000;
 
         let quid = if uid {
-            Some(radix_36(ts).to_string() + &RsmqFunctions::<T>::make_id(22))
+            Some(radix_36(ts).to_string() + &RsmqFunctions::<T>::make_id(22)?)
         } else {
             None
         };
 
         Ok(QueueDescriptor {
-            vt: hmget_first.parse().expect("cannot parse queue vt"),
-            delay: hmget_second.parse().expect("cannot parse queue delay"),
-            maxsize: hmget_third.parse().expect("cannot parse queue maxsize"),
+            vt: hmget_first.parse().map_err(|_| RsmqError::CannotParseVT)?,
+            delay: hmget_second
+                .parse()
+                .map_err(|_| RsmqError::CannotParseDelay)?,
+            maxsize: hmget_third
+                .parse()
+                .map_err(|_| RsmqError::CannotParseMaxsize)?,
             ts,
             uid: quid,
         })
     }
 
-    fn make_id(len: usize) -> String {
+    fn make_id(len: usize) -> RsmqResult<String> {
         let possible = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
 
         let mut rng = rand::thread_rng();
@@ -466,10 +476,15 @@ impl<T: ConnectionLike> RsmqFunctions<T> {
         let mut id = String::with_capacity(len);
 
         for _ in 0..len {
-            id.push(possible.chars().choose(&mut rng).unwrap());
+            id.push(
+                possible
+                    .chars()
+                    .choose(&mut rng)
+                    .ok_or(RsmqError::BugCreatingRandonValue)?,
+            );
         }
 
-        id
+        Ok(id)
     }
 }
 
@@ -477,7 +492,7 @@ fn number_in_range<T: std::cmp::PartialOrd + std::fmt::Display>(
     value: T,
     min: T,
     max: T,
-) -> Result<(), RsmqError> {
+) -> RsmqResult<()> {
     if value >= min && value <= max {
         Ok(())
     } else {
@@ -489,7 +504,7 @@ fn number_in_range<T: std::cmp::PartialOrd + std::fmt::Display>(
     }
 }
 
-fn valid_name_format(name: &str) -> Result<(), RsmqError> {
+fn valid_name_format(name: &str) -> RsmqResult<()> {
     if name.is_empty() && name.len() > 160 {
         return Err(RsmqError::InvalidFormat(name.to_string()));
     } else {

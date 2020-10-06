@@ -1,5 +1,5 @@
-use crate::error::RsmqError;
 use crate::types::{RsmqMessage, RsmqQueueAttributes};
+use crate::RsmqResult;
 
 #[async_trait::async_trait]
 pub trait RsmqConnection {
@@ -9,7 +9,7 @@ pub trait RsmqConnection {
         qname: &str,
         message_id: &str,
         seconds_hidden: u64,
-    ) -> Result<(), RsmqError>;
+    ) -> RsmqResult<()>;
 
     /// Creates a new queue. Attributes can be later modified with "set_queue_attributes" method
     ///
@@ -24,30 +24,29 @@ pub trait RsmqConnection {
         seconds_hidden: Option<u32>,
         delay: Option<u32>,
         maxsize: Option<i32>,
-    ) -> Result<(), RsmqError>;
+    ) -> RsmqResult<()>;
 
     /// Deletes a message from the queue.
     ///
     /// Important to use when you are using receive_message.
-    async fn delete_message(&mut self, qname: &str, id: &str) -> Result<bool, RsmqError>;
+    async fn delete_message(&mut self, qname: &str, id: &str) -> RsmqResult<bool>;
     /// Deletes the queue and all the messages on it
-    async fn delete_queue(&mut self, qname: &str) -> Result<(), RsmqError>;
+    async fn delete_queue(&mut self, qname: &str) -> RsmqResult<()>;
     /// Returns the queue attributes and statistics
-    async fn get_queue_attributes(&mut self, qname: &str)
-        -> Result<RsmqQueueAttributes, RsmqError>;
+    async fn get_queue_attributes(&mut self, qname: &str) -> RsmqResult<RsmqQueueAttributes>;
 
     /// Returns a list of queues in the namespace
-    async fn list_queues(&mut self) -> Result<Vec<String>, RsmqError>;
+    async fn list_queues(&mut self) -> RsmqResult<Vec<String>>;
 
     /// Deletes and returns a message. Be aware that using this you may end with deleted & unprocessed messages.
-    async fn pop_message(&mut self, qname: &str) -> Result<Option<RsmqMessage>, RsmqError>;
+    async fn pop_message(&mut self, qname: &str) -> RsmqResult<Option<RsmqMessage>>;
 
     /// Returns a message. The message stays hidden for some time (defined by "seconds_hidden" argument or the queue settings). After that time, the message will be redelivered. In order to avoid the redelivery, you need to use the "dekete_message" after this function.
     async fn receive_message(
         &mut self,
         qname: &str,
         seconds_hidden: Option<u64>,
-    ) -> Result<Option<RsmqMessage>, RsmqError>;
+    ) -> RsmqResult<Option<RsmqMessage>>;
 
     /// Sends a message to the queue. The message will be delayed some time (controlled by the "delayed" argument or the queue settings) before being delivered to a client.
     async fn send_message(
@@ -55,7 +54,7 @@ pub trait RsmqConnection {
         qname: &str,
         message: &str,
         delay: Option<u64>,
-    ) -> Result<String, RsmqError>;
+    ) -> RsmqResult<String>;
 
     /// Modify the queue attributes. Keep in mind that "seconds_hidden" and "delay" can be overwritten when the message is sent. "seconds_hidden" can be changed by the method "change_message_visibility"
     ///
@@ -70,5 +69,5 @@ pub trait RsmqConnection {
         seconds_hidden: Option<u64>,
         delay: Option<u64>,
         maxsize: Option<i64>,
-    ) -> Result<RsmqQueueAttributes, RsmqError>;
+    ) -> RsmqResult<RsmqQueueAttributes>;
 }
