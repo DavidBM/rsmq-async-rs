@@ -18,7 +18,10 @@ fn send_receiving_deleting_message() {
             .await
             .unwrap();
 
-        let message = rsmq.receive_message("queue1", None).await.unwrap();
+        let message = rsmq
+            .receive_message::<String>("queue1", None)
+            .await
+            .unwrap();
         assert!(message.is_some());
 
         let message = message.unwrap();
@@ -27,7 +30,10 @@ fn send_receiving_deleting_message() {
 
         assert_eq!(message.message, "testmessage".to_string());
 
-        let message = rsmq.receive_message("queue1", None).await.unwrap();
+        let message = rsmq
+            .receive_message::<String>("queue1", None)
+            .await
+            .unwrap();
 
         assert!(message.is_none());
         rsmq.delete_queue("queue1").await.unwrap();
@@ -49,7 +55,7 @@ fn pop_message() {
             .await
             .unwrap();
 
-        let message = rsmq.pop_message("queue2").await.unwrap();
+        let message = rsmq.pop_message::<String>("queue2").await.unwrap();
 
         assert!(message.is_some());
 
@@ -57,7 +63,7 @@ fn pop_message() {
 
         assert_eq!(message.message, "testmessage");
 
-        let message = rsmq.pop_message("queue2").await.unwrap();
+        let message = rsmq.pop_message::<String>("queue2").await.unwrap();
 
         assert!(message.is_none());
 
@@ -204,12 +210,18 @@ fn change_message_visibility() {
             .await
             .unwrap();
 
-        let message = rsmq.receive_message("queue6", None).await.unwrap();
+        let message = rsmq
+            .receive_message::<String>("queue6", None)
+            .await
+            .unwrap();
         assert!(message.is_some());
 
         let message_id = message.unwrap().id;
 
-        let message = rsmq.receive_message("queue6", None).await.unwrap();
+        let message = rsmq
+            .receive_message::<String>("queue6", None)
+            .await
+            .unwrap();
         assert!(message.is_none());
 
         rsmq.change_message_visibility("queue6", &message_id, 0)
@@ -219,7 +231,10 @@ fn change_message_visibility() {
         let ten_millis = std::time::Duration::from_millis(10);
         std::thread::sleep(ten_millis);
 
-        let message = rsmq.receive_message("queue6", None).await.unwrap();
+        let message = rsmq
+            .receive_message::<String>("queue6", None)
+            .await
+            .unwrap();
         assert!(message.is_some());
 
         assert_eq!(message_id, message.unwrap().id);

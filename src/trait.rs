@@ -1,5 +1,7 @@
+use crate::types::RedisBytes;
 use crate::types::{RsmqMessage, RsmqQueueAttributes};
 use crate::RsmqResult;
+use core::convert::TryFrom;
 
 #[async_trait::async_trait]
 pub trait RsmqConnection {
@@ -39,20 +41,23 @@ pub trait RsmqConnection {
     async fn list_queues(&mut self) -> RsmqResult<Vec<String>>;
 
     /// Deletes and returns a message. Be aware that using this you may end with deleted & unprocessed messages.
-    async fn pop_message(&mut self, qname: &str) -> RsmqResult<Option<RsmqMessage>>;
+    async fn pop_message<E: TryFrom<RedisBytes, Error = Vec<u8>>>(
+        &mut self,
+        qname: &str,
+    ) -> RsmqResult<Option<RsmqMessage<E>>>;
 
     /// Returns a message. The message stays hidden for some time (defined by "seconds_hidden" argument or the queue settings). After that time, the message will be redelivered. In order to avoid the redelivery, you need to use the "dekete_message" after this function.
-    async fn receive_message(
+    async fn receive_message<E: TryFrom<RedisBytes, Error = Vec<u8>>>(
         &mut self,
         qname: &str,
         seconds_hidden: Option<u64>,
-    ) -> RsmqResult<Option<RsmqMessage>>;
+    ) -> RsmqResult<Option<RsmqMessage<E>>>;
 
     /// Sends a message to the queue. The message will be delayed some time (controlled by the "delayed" argument or the queue settings) before being delivered to a client.
-    async fn send_message(
+    async fn send_message<E: Into<RedisBytes> + Send>(
         &mut self,
         qname: &str,
-        message: &str,
+        message: E,
         delay: Option<u64>,
     ) -> RsmqResult<String>;
 

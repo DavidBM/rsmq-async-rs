@@ -39,4 +39,6 @@ pub enum RsmqError {
     CannotParseDelay,
     #[error("Cannot parse queue maxsize")]
     CannotParseMaxsize,
+    #[error("The message received from Redis cannot be decoded into the expected type. Try to use Vec<u8> instead.")]
+    CannotDecodeMessage(Vec<u8>),
 }
