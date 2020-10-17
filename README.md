@@ -15,6 +15,10 @@ simplify the code and allow 1-to-1 port oft he JS code.
 [![dependency status](https://deps.rs/crate/rsmq_async/4.0.0/status.svg)](https://deps.rs/crate/rsmq_async)
 [![Docs](https://img.shields.io/badge/docs-latest-blue.svg?style=flat-square)](https://docs.rs/rsmq_async)
 
+Work on rsmq-async-rs is sponsored by:
+
+[![Couragium Solutions](https://www.couragium.com/images/mail/couragium-logo-orange.png)](https://couragium.com/en)
+
 ## Example
 
 ```rust,no_run
