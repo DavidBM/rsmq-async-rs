@@ -162,3 +162,4 @@ pub use pooled_facade::PooledRsmq;
 pub use r#trait::RsmqConnection;
 pub use types::RsmqOptions;
 pub use types::RedisBytes;
+pub use types::RsmqMessage;
