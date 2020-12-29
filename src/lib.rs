@@ -163,3 +163,4 @@ pub use r#trait::RsmqConnection;
 pub use types::RsmqOptions;
 pub use types::RedisBytes;
 pub use types::RsmqMessage;
+pub use types::RsmqQueueAttributes;
