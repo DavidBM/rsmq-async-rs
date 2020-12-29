@@ -95,9 +95,11 @@ impl TryFrom<RedisBytes> for String {
     }
 }
 
-impl From<RedisBytes> for Vec<u8> {
-    fn from(bytes: RedisBytes) -> Vec<u8> {
-        bytes.0
+impl TryFrom<RedisBytes> for Vec<u8> {
+    type Error = Vec<u8>;
+
+    fn try_from(bytes: RedisBytes) -> Result<Self, Vec<u8>> {
+        Ok(bytes.0)
     }
 }
 
