@@ -72,6 +72,37 @@ fn pop_message() {
 }
 
 #[test]
+fn pop_message_vec_u8() {
+    let mut rt = tokio::runtime::Runtime::new().unwrap();
+
+    rt.block_on(async move {
+        let ctx = TestContext::new();
+        let connection = ctx.async_connection().await.unwrap();
+        let mut rsmq = Rsmq::new_with_connection(Default::default(), connection);
+
+        rsmq.create_queue("queue2", None, None, None).await.unwrap();
+
+        rsmq.send_message("queue2", "testmessage", None)
+            .await
+            .unwrap();
+
+        let message = rsmq.pop_message::<Vec<u8>>("queue2").await.unwrap();
+
+        assert!(message.is_some());
+
+        let message = message.unwrap();
+
+        assert_eq!(message.message, "testmessage".as_bytes());
+
+        let message = rsmq.pop_message::<String>("queue2").await.unwrap();
+
+        assert!(message.is_none());
+
+        rsmq.delete_queue("queue2").await.unwrap();
+    })
+}
+
+#[test]
 fn creating_queue() {
     let mut rt = tokio::runtime::Runtime::new().unwrap();
 
