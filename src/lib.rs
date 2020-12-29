@@ -116,7 +116,7 @@
 //! There are 3 functions that take generic types:
 //!
 //! - `pop_message` and `receive_message`: Where the type for the received message is
-//! `RsmqMessage<E>` where `E: TryFrom<RedisBytes>`. So, If you have custom type, you can implement the trait
+//! `RsmqMessage<E>` where `E: TryFrom<RedisBytes, Error = Vec<u8>>`. So, If you have custom type, you can implement the trait
 //! `TryFrom<RedisBytes>` for `YourCustomType` and use it like: `rsmq.receive_message::<YourCustomType>("myqueue", None)`.
 //! Implementations are provided for `String` and `Vec<u8>`.
 //! - `send_message` where the message to send needs to implement `Into<RedisBytes> + Send`. So you will
@@ -133,8 +133,10 @@
 //!
 //! ```rust,ignore
 //! impl TryFrom<RedisBytes> for String {
-//! 	We sacrifice the ability of recovering the original error for the ability of having the
-//! 	original data. If you know how to conserver both, let me know!
+//! 
+//!     // We sacrifice the ability of recovering the original error for the ability of having the
+//!     // original data. If you know how to conserver both, let me know!
+//!     
 //!     type Error = Vec<u8>; // Always set Error as Vec<u8>;
 //!
 //!     fn try_from(bytes: RedisBytes) -> Result<Self, Self::Error> {
