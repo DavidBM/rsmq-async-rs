@@ -89,7 +89,7 @@ fn send_receiving_deleting_message_custom_type() {
         type Error = Vec<u8>;
 
         fn try_from(t: RedisBytes) -> Result<Self, Self::Error> {
-            Ok(MyValue(t.as_bytes()))
+            Ok(MyValue(t.into_bytes()))
         }
     }
 
