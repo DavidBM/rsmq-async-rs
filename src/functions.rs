@@ -257,8 +257,7 @@ impl<T: ConnectionLike> RsmqFunctions<T> {
             return Ok(None);
         }
 
-        let message =
-            E::try_from(RedisBytes(result.2)).map_err(|e| RsmqError::CannotDecodeMessage(e))?;
+        let message = E::try_from(RedisBytes(result.2)).map_err(RsmqError::CannotDecodeMessage)?;
 
         Ok(Some(RsmqMessage {
             id: result.1.clone(),
@@ -295,8 +294,7 @@ impl<T: ConnectionLike> RsmqFunctions<T> {
             return Ok(None);
         }
 
-        let message =
-            E::try_from(RedisBytes(result.2)).map_err(|e| RsmqError::CannotDecodeMessage(e))?;
+        let message = E::try_from(RedisBytes(result.2)).map_err(RsmqError::CannotDecodeMessage)?;
 
         Ok(Some(RsmqMessage {
             id: result.1.clone(),
