@@ -1,6 +1,7 @@
 mod support;
 
-use rsmq_async::{Rsmq, RsmqConnection, RsmqError};
+use rsmq_async::{RedisBytes, Rsmq, RsmqConnection, RsmqError};
+use std::convert::TryFrom;
 use support::*;
 
 #[test]
@@ -32,6 +33,91 @@ fn send_receiving_deleting_message() {
 
         let message = rsmq
             .receive_message::<String>("queue1", None)
+            .await
+            .unwrap();
+
+        assert!(message.is_none());
+        rsmq.delete_queue("queue1").await.unwrap();
+    })
+}
+
+#[test]
+fn send_receiving_deleting_message_vec_u8() {
+    let mut rt = tokio::runtime::Runtime::new().unwrap();
+
+    rt.block_on(async move {
+        let ctx = TestContext::new();
+        let connection = ctx.async_connection().await.unwrap();
+        let mut rsmq = Rsmq::new_with_connection(Default::default(), connection);
+
+        rsmq.create_queue("queue1", None, None, None).await.unwrap();
+
+        rsmq.send_message("queue1", "testmessage", None)
+            .await
+            .unwrap();
+
+        let message = rsmq
+            .receive_message::<Vec<u8>>("queue1", None)
+            .await
+            .unwrap();
+        assert!(message.is_some());
+
+        let message = message.unwrap();
+
+        rsmq.delete_message("queue1", &message.id).await.unwrap();
+
+        assert_eq!(message.message, b"testmessage");
+
+        let message = rsmq
+            .receive_message::<Vec<u8>>("queue1", None)
+            .await
+            .unwrap();
+
+        assert!(message.is_none());
+        rsmq.delete_queue("queue1").await.unwrap();
+    })
+}
+
+#[test]
+fn send_receiving_deleting_message_custom_type() {
+    let mut rt = tokio::runtime::Runtime::new().unwrap();
+
+    #[derive(Debug, PartialEq)]
+    struct MyValue(Vec<u8>);
+
+    impl TryFrom<RedisBytes> for MyValue {
+        type Error = Vec<u8>;
+
+        fn try_from(t: RedisBytes) -> Result<Self, Self::Error> {
+            Ok(MyValue(t.as_bytes()))
+        }
+    }
+
+    rt.block_on(async move {
+        let ctx = TestContext::new();
+        let connection = ctx.async_connection().await.unwrap();
+        let mut rsmq = Rsmq::new_with_connection(Default::default(), connection);
+
+        rsmq.create_queue("queue1", None, None, None).await.unwrap();
+
+        rsmq.send_message("queue1", b"testmessage".to_owned().to_vec(), None)
+            .await
+            .unwrap();
+
+        let message = rsmq
+            .receive_message::<MyValue>("queue1", None)
+            .await
+            .unwrap();
+        assert!(message.is_some());
+
+        let message = message.unwrap();
+
+        rsmq.delete_message("queue1", &message.id).await.unwrap();
+
+        assert_eq!(message.message, MyValue(b"testmessage".to_owned().to_vec()));
+
+        let message = rsmq
+            .receive_message::<MyValue>("queue1", None)
             .await
             .unwrap();
 

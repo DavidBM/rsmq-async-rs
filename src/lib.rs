@@ -133,7 +133,7 @@
 //!
 //! ```rust,ignore
 //! impl TryFrom<RedisBytes> for String {
-//! 
+//!
 //!     // We sacrifice the ability of recovering the original error for the ability of having the
 //!     // original data. If you know how to conserver both, let me know!
 //!     
@@ -160,7 +160,7 @@ pub use error::RsmqResult;
 pub use normal_facade::Rsmq;
 pub use pooled_facade::PooledRsmq;
 pub use r#trait::RsmqConnection;
-pub use types::RsmqOptions;
 pub use types::RedisBytes;
 pub use types::RsmqMessage;
+pub use types::RsmqOptions;
 pub use types::RsmqQueueAttributes;

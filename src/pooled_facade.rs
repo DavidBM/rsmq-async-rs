@@ -34,7 +34,10 @@ impl bb8::ManageConnection for RedisConnectionManager {
         self.client.get_async_connection().await
     }
 
-    async fn is_valid(&self, conn: &mut bb8::PooledConnection<'_, Self>) -> Result<(), Self::Error> {
+    async fn is_valid(
+        &self,
+        conn: &mut bb8::PooledConnection<'_, Self>,
+    ) -> Result<(), Self::Error> {
         redis::cmd("PING").query_async(conn.deref_mut()).await
     }
 
