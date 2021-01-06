@@ -5,6 +5,7 @@ use crate::types::{RsmqMessage, RsmqOptions, RsmqQueueAttributes};
 use crate::RsmqResult;
 use core::convert::TryFrom;
 use std::marker::PhantomData;
+use std::ops::DerefMut;
 
 use async_trait::async_trait;
 use redis::RedisError;
@@ -33,9 +34,11 @@ impl bb8::ManageConnection for RedisConnectionManager {
         self.client.get_async_connection().await
     }
 
-    async fn is_valid(&self, mut conn: Self::Connection) -> Result<Self::Connection, Self::Error> {
-        redis::cmd("PING").query_async::<_, _>(&mut conn).await?;
-        Ok(conn)
+    async fn is_valid(
+        &self,
+        conn: &mut bb8::PooledConnection<'_, Self>,
+    ) -> Result<(), Self::Error> {
+        redis::cmd("PING").query_async(conn.deref_mut()).await
     }
 
     fn has_broken(&self, _: &mut Self::Connection) -> bool {
