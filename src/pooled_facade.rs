@@ -47,8 +47,8 @@ impl bb8::ManageConnection for RedisConnectionManager {
 }
 
 pub struct PoolOptions {
-    max_size: Option<u32>,
-    min_idle: Option<u32>,
+    pub max_size: Option<u32>,
+    pub min_idle: Option<u32>,
 }
 
 impl Default for PoolOptions {
