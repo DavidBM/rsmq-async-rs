@@ -20,7 +20,7 @@ redis = {version = "0.20", features = ["tokio-comp", "async-std-comp"]}
 async-trait = "0.1.50"
 
 [dev-dependencies]
-net2 = "0.2.33"
+net2 = "0.2.37"
 
 [dev-dependencies.tokio]
 version = "0.2.11"
