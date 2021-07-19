@@ -158,7 +158,7 @@ mod types;
 pub use error::RsmqError;
 pub use error::RsmqResult;
 pub use normal_facade::Rsmq;
-pub use pooled_facade::{PooledRsmq, PoolOptions} ;
+pub use pooled_facade::{PoolOptions, PooledRsmq};
 pub use r#trait::RsmqConnection;
 pub use types::RedisBytes;
 pub use types::RsmqMessage;
