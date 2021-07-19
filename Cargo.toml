@@ -15,9 +15,9 @@ lazy_static = "1.4"
 rand = "0.8"
 radix_fmt = "1.0"
 bb8 = "0.7"
-thiserror = "1.0.20"
-redis = {version = "0.18.0", features = ["tokio-comp", "async-std-comp"]}
-async-trait = "0.1.40"
+thiserror = "1.0"
+redis = {version = "0.20", features = ["tokio-comp", "async-std-comp"]}
+async-trait = "0.1.50"
 
 [dev-dependencies]
 net2 = "0.2.33"
