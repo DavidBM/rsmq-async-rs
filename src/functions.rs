@@ -270,7 +270,7 @@ impl<T: ConnectionLike> RsmqFunctions<T> {
 
     /// Returns a message. The message stays hidden for some time (defined by "seconds_hidden"
     /// argument or the queue settings). After that time, the message will be redelivered.
-    /// In order to avoid the redelivery, you need to use the "dekete_message" after this function.
+    /// In order to avoid the redelivery, you need to use the "delete_message" after this function.
     pub async fn receive_message<E: TryFrom<RedisBytes, Error = Vec<u8>>>(
         &self,
         conn: &mut T,
