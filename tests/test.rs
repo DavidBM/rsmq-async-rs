@@ -6,7 +6,7 @@ use support::*;
 
 #[test]
 fn send_receiving_deleting_message() {
-    let mut rt = tokio::runtime::Runtime::new().unwrap();
+    let rt = tokio::runtime::Runtime::new().unwrap();
 
     rt.block_on(async move {
         let ctx = TestContext::new();
@@ -43,7 +43,7 @@ fn send_receiving_deleting_message() {
 
 #[test]
 fn send_receiving_deleting_message_vec_u8() {
-    let mut rt = tokio::runtime::Runtime::new().unwrap();
+    let rt = tokio::runtime::Runtime::new().unwrap();
 
     rt.block_on(async move {
         let ctx = TestContext::new();
@@ -80,7 +80,7 @@ fn send_receiving_deleting_message_vec_u8() {
 
 #[test]
 fn send_receiving_deleting_message_custom_type() {
-    let mut rt = tokio::runtime::Runtime::new().unwrap();
+    let rt = tokio::runtime::Runtime::new().unwrap();
 
     #[derive(Debug, PartialEq)]
     struct MyValue(Vec<u8>);
@@ -128,7 +128,7 @@ fn send_receiving_deleting_message_custom_type() {
 
 #[test]
 fn pop_message() {
-    let mut rt = tokio::runtime::Runtime::new().unwrap();
+    let rt = tokio::runtime::Runtime::new().unwrap();
 
     rt.block_on(async move {
         let ctx = TestContext::new();
@@ -159,7 +159,7 @@ fn pop_message() {
 
 #[test]
 fn pop_message_vec_u8() {
-    let mut rt = tokio::runtime::Runtime::new().unwrap();
+    let rt = tokio::runtime::Runtime::new().unwrap();
 
     rt.block_on(async move {
         let ctx = TestContext::new();
@@ -190,7 +190,7 @@ fn pop_message_vec_u8() {
 
 #[test]
 fn creating_queue() {
-    let mut rt = tokio::runtime::Runtime::new().unwrap();
+    let rt = tokio::runtime::Runtime::new().unwrap();
 
     rt.block_on(async move {
         let ctx = TestContext::new();
@@ -209,7 +209,6 @@ fn creating_queue() {
 
         if let Err(RsmqError::QueueExists) = result {
             rsmq.delete_queue("queue3").await.unwrap();
-            return;
         } else {
             panic!()
         }
@@ -218,7 +217,7 @@ fn creating_queue() {
 
 #[test]
 fn updating_queue() {
-    let mut rt = tokio::runtime::Runtime::new().unwrap();
+    let rt = tokio::runtime::Runtime::new().unwrap();
 
     rt.block_on(async move {
         let ctx = TestContext::new();
@@ -261,7 +260,7 @@ fn updating_queue() {
 
 #[test]
 fn deleting_queue() {
-    let mut rt = tokio::runtime::Runtime::new().unwrap();
+    let rt = tokio::runtime::Runtime::new().unwrap();
 
     rt.block_on(async move {
         let ctx = TestContext::new();
@@ -286,7 +285,7 @@ fn deleting_queue() {
 
         if let Err(RsmqError::QueueNotFound) = result {
         } else {
-            panic!()
+            panic!("{:?}", result)
         }
 
         let result = rsmq.get_queue_attributes("queue5").await;
@@ -295,7 +294,7 @@ fn deleting_queue() {
 
         if let Err(RsmqError::QueueNotFound) = result {
         } else {
-            panic!()
+            panic!("{:?}", result)
         }
 
         let result = rsmq
@@ -305,16 +304,15 @@ fn deleting_queue() {
         assert!(result.is_err());
 
         if let Err(RsmqError::QueueNotFound) = result {
-            return;
         } else {
-            panic!()
+            panic!("{:?}", result)
         }
     })
 }
 
 #[test]
 fn change_message_visibility() {
-    let mut rt = tokio::runtime::Runtime::new().unwrap();
+    let rt = tokio::runtime::Runtime::new().unwrap();
 
     rt.block_on(async move {
         let ctx = TestContext::new();

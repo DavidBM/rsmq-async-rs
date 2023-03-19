@@ -192,7 +192,7 @@ impl<T: ConnectionLike> RsmqFunctions<T> {
 
         let time: (u64, u64) = redis::cmd("TIME").query_async(conn).await?;
 
-        let result: (Vec<u64>, u64, u64) = pipe()
+        let result: (Vec<Option<u64>>, u64, u64) = pipe()
             .atomic()
             .cmd("HMGET")
             .arg(format!("{}:Q", key))
@@ -212,18 +212,20 @@ impl<T: ConnectionLike> RsmqFunctions<T> {
             .query_async(conn)
             .await?;
 
-        if result.0.is_empty() {
+        let is_empty = result.0.contains(&None);
+
+        if is_empty {
             return Err(RsmqError::QueueNotFound);
         }
 
         Ok(RsmqQueueAttributes {
-            vt: *result.0.get(0).unwrap_or(&0),
-            delay: *result.0.get(1).unwrap_or(&0),
-            maxsize: *result.0.get(2).unwrap_or(&0),
-            totalrecv: *result.0.get(3).unwrap_or(&0),
-            totalsent: *result.0.get(4).unwrap_or(&0),
-            created: *result.0.get(5).unwrap_or(&0),
-            modified: *result.0.get(6).unwrap_or(&0),
+            vt: result.0.first().unwrap_or(&Some(0)).unwrap_or(0),
+            delay: result.0.get(1).unwrap_or(&Some(0)).unwrap_or(0),
+            maxsize: result.0.get(2).unwrap_or(&Some(0)).unwrap_or(0),
+            totalrecv: result.0.get(3).unwrap_or(&Some(0)).unwrap_or(0),
+            totalsent: result.0.get(4).unwrap_or(&Some(0)).unwrap_or(0),
+            created: result.0.get(5).unwrap_or(&Some(0)).unwrap_or(0),
+            modified: result.0.get(6).unwrap_or(&Some(0)).unwrap_or(0),
             msgs: result.1,
             hiddenmsgs: result.2,
         })
@@ -441,7 +443,7 @@ impl<T: ConnectionLike> RsmqFunctions<T> {
     }
 
     async fn get_queue(&self, conn: &mut T, qname: &str, uid: bool) -> RsmqResult<QueueDescriptor> {
-        let result: (Vec<String>, (u64, u64)) = pipe()
+        let result: (Vec<Option<String>>, (u64, u64)) = pipe()
             .atomic()
             .cmd("HMGET")
             .arg(format!("{}{}:Q", self.ns, qname))
@@ -457,7 +459,7 @@ impl<T: ConnectionLike> RsmqFunctions<T> {
 
         let (hmget_first, hmget_second, hmget_third) =
             match (result.0.get(0), result.0.get(1), result.0.get(2)) {
-                (Some(v0), Some(v1), Some(v2)) => (v0, v1, v2),
+                (Some(Some(v0)), Some(Some(v1)), Some(Some(v2))) => (v0, v1, v2),
                 _ => return Err(RsmqError::QueueNotFound),
             };
 

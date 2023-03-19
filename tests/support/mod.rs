@@ -1,5 +1,3 @@
-use net2;
-use redis;
 use std::fs;
 use std::process;
 use std::thread::sleep;
@@ -47,7 +45,7 @@ impl RedisServer {
                     .arg(bind);
             }
             redis::ConnectionAddr::Unix(ref path) => {
-                cmd.arg("--port").arg("0").arg("--unixsocket").arg(&path);
+                cmd.arg("--port").arg("0").arg("--unixsocket").arg(path);
             }
             _ => panic!("Not TLS support for the tests"),
         };
@@ -66,7 +64,7 @@ impl RedisServer {
         let _ = self.process.kill();
         let _ = self.process.wait();
         if let redis::ConnectionAddr::Unix(ref path) = *self.get_client_addr() {
-            fs::remove_file(&path).ok();
+            fs::remove_file(path).ok();
         }
     }
 }
@@ -87,10 +85,12 @@ impl TestContext {
         let server = RedisServer::new();
 
         let client = redis::Client::open(redis::ConnectionInfo {
-            addr: Box::new(server.get_client_addr().clone()),
-            db: 0,
-            passwd: None,
-            username: None,
+            addr: server.get_client_addr().clone(),
+            redis: redis::RedisConnectionInfo {
+                db: 0,
+                username: None,
+                password: None,
+            },
         })
         .unwrap();
         let mut con;

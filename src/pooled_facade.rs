@@ -46,18 +46,10 @@ impl bb8::ManageConnection for RedisConnectionManager {
     }
 }
 
+#[derive(Default)]
 pub struct PoolOptions {
     pub max_size: Option<u32>,
     pub min_idle: Option<u32>,
-}
-
-impl Default for PoolOptions {
-    fn default() -> Self {
-        PoolOptions {
-            max_size: None,
-            min_idle: None,
-        }
-    }
 }
 
 pub struct PooledRsmq {
