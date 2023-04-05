@@ -150,6 +150,7 @@
 
 mod error;
 mod functions;
+mod multiplexed_facade;
 mod normal_facade;
 mod pooled_facade;
 mod r#trait;
@@ -157,6 +158,7 @@ mod types;
 
 pub use error::RsmqError;
 pub use error::RsmqResult;
+pub use multiplexed_facade::MultiplexedRsmq;
 pub use normal_facade::Rsmq;
 pub use pooled_facade::{PoolOptions, PooledRsmq};
 pub use r#trait::RsmqConnection;
