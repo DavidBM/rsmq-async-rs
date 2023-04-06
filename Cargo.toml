@@ -14,12 +14,12 @@ documentation = "https://docs.rs/rsmq_async/"
 readme = "README.md"
 
 [dependencies]
-lazy_static = "1.4"
+lazy_static = "1"
 rand = "0.8"
-radix_fmt = "1.0"
+radix_fmt = "1"
 bb8 = "0.7"
-thiserror = "1.0"
-redis = { version = "0.22", features = ["tokio-comp", "async-std-comp"] }
+thiserror = "1"
+redis = { version = "0.23", features = ["tokio-comp", "async-std-comp"] }
 async-trait = "0.1"
 
 [dev-dependencies]
