@@ -3,12 +3,10 @@ use crate::r#trait::RsmqConnection;
 use crate::types::RedisBytes;
 use crate::types::{RsmqMessage, RsmqOptions, RsmqQueueAttributes};
 use crate::RsmqResult;
-use core::convert::TryFrom;
-use std::marker::PhantomData;
-use std::ops::DerefMut;
-
 use async_trait::async_trait;
+use core::convert::TryFrom;
 use redis::RedisError;
+use std::marker::PhantomData;
 
 #[derive(Clone, Debug)]
 pub struct RedisConnectionManager {
@@ -34,11 +32,8 @@ impl bb8::ManageConnection for RedisConnectionManager {
         self.client.get_async_connection().await
     }
 
-    async fn is_valid(
-        &self,
-        conn: &mut bb8::PooledConnection<'_, Self>,
-    ) -> Result<(), Self::Error> {
-        redis::cmd("PING").query_async(conn.deref_mut()).await
+    async fn is_valid(&self, conn: &mut redis::aio::Connection) -> Result<(), Self::Error> {
+        redis::cmd("PING").query_async(conn).await
     }
 
     fn has_broken(&self, _: &mut Self::Connection) -> bool {
@@ -85,7 +80,7 @@ impl PooledRsmq {
             password, options.host, options.port, options.db
         );
 
-        let manager = RedisConnectionManager::new(url).unwrap();
+        let manager = RedisConnectionManager::new(url)?;
         let builder = bb8::Pool::builder();
 
         let mut builder = if let Some(value) = pool_options.max_size {
@@ -96,7 +91,7 @@ impl PooledRsmq {
 
         builder = builder.min_idle(pool_options.min_idle);
 
-        let pool = builder.build(manager).await.unwrap();
+        let pool = builder.build(manager).await?;
 
         Ok(PooledRsmq {
             pool,
