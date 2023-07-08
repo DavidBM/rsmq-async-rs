@@ -12,7 +12,7 @@ simplify the code and allow 1-to-1 port oft he JS code.
 
 [![Crates.io](https://img.shields.io/crates/v/rsmq_async)](https://crates.io/crates/rsmq_async)
 [![Crates.io](https://img.shields.io/crates/l/rsmq_async)](https://choosealicense.com/licenses/mit/)
-[![dependency status](https://deps.rs/crate/rsmq_async/4.0.0/status.svg)](https://deps.rs/crate/rsmq_async)
+[![dependency status](https://deps.rs/crate/rsmq_async/latest/status.svg)](https://deps.rs/crate/rsmq_async)
 [![Docs](https://img.shields.io/badge/docs-latest-blue.svg?style=flat-square)](https://docs.rs/rsmq_async)
 
 ## Example
@@ -100,15 +100,6 @@ instad of Rsmq. It implements the RsmqConnection trait as the normal Rsmq.
 
 If you want to accept any of both implementation, just accept the trait
 <a href="trait.RsmqConnection.html">RsmqConnection</a>
-
-## Executor compatibility
-
-Since version 0.16 [where this pull request was merged](https://github.com/mitsuhiko/redis-rs/issues/280)
-redis-rs dependency supports tokio and async_std executors. By default it will
-guess what you are using when creating the connection. You can check
-[redis-rs](https://github.com/mitsuhiko/redis-rs/blob/master/Cargo.toml) `Cargo.tolm` for
-the flags `async-std-comp` and `tokio-comp` in order to choose one or the other. If you don't select
-any it should be able to automatically choose the correct one.
 
 ## Response types
 
