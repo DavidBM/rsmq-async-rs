@@ -23,34 +23,37 @@ pub struct MultiplexedRsmq {
 impl MultiplexedRsmq {
     /// Creates a new RSMQ instance, including its connection
     pub async fn new(options: RsmqOptions) -> RsmqResult<MultiplexedRsmq> {
-        let password = if let Some(password) = options.password.clone() {
-            format!("redis:{}@", password)
-        } else {
-            "".to_string()
+        let conn_info = redis::ConnectionInfo {
+            addr: redis::ConnectionAddr::Tcp(options.host, options.port),
+            redis: redis::RedisConnectionInfo {
+                db: options.db.into(),
+                username: options.username,
+                password: options.password,
+            },
         };
 
-        let url = format!(
-            "redis://{}{}:{}/{}",
-            password, options.host, options.port, options.db
-        );
-
-        let client = redis::Client::open(url)?;
+        let client = redis::Client::open(conn_info)?;
 
         let connection = client.get_multiplexed_async_connection().await?;
 
-        Ok(MultiplexedRsmq::new_with_connection(options, connection))
+        Ok(MultiplexedRsmq::new_with_connection(
+            connection,
+            options.realtime,
+            Some(&options.ns),
+        ))
     }
 
     /// Special method for when you already have a redis-rs connection and you don't want redis_async to create a new one.
     pub fn new_with_connection(
-        options: RsmqOptions,
         connection: redis::aio::MultiplexedConnection,
+        realtime: bool,
+        ns: Option<&str>,
     ) -> MultiplexedRsmq {
         MultiplexedRsmq {
             connection: RedisConnection(connection),
             functions: RsmqFunctions {
-                ns: options.ns.clone(),
-                realtime: options.realtime,
+                ns: ns.unwrap_or("rsmq").to_string(),
+                realtime,
                 conn: PhantomData,
             },
         }

@@ -15,12 +15,14 @@ pub struct RsmqOptions {
     /// Redis host
     pub host: String,
     /// Redis port
-    pub port: String,
+    pub port: u16,
     /// Redis db
     pub db: u8,
     /// If true, it will use redis pubsub to notify clients about new messages.
     /// More info in the general crate description
     pub realtime: bool,
+    /// Redis username
+    pub username: Option<String>,
     /// Redis password
     pub password: Option<String>,
     /// RSMQ namespace (you can have several. "rsmq" by default)
@@ -31,9 +33,10 @@ impl Default for RsmqOptions {
     fn default() -> Self {
         RsmqOptions {
             host: "localhost".to_string(),
-            port: "6379".to_string(),
+            port: 6379,
             db: 0,
             realtime: false,
+            username: None,
             password: None,
             ns: "rsmq".to_string(),
         }

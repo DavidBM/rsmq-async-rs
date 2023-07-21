@@ -14,12 +14,8 @@ pub struct RedisConnectionManager {
 }
 
 impl RedisConnectionManager {
-    pub fn new<T: redis::IntoConnectionInfo>(
-        info: T,
-    ) -> Result<RedisConnectionManager, RedisError> {
-        Ok(RedisConnectionManager {
-            client: redis::Client::open(info.into_connection_info()?)?,
-        })
+    pub fn from_client(client: redis::Client) -> Result<RedisConnectionManager, RedisError> {
+        Ok(RedisConnectionManager { client })
     }
 }
 
@@ -49,7 +45,6 @@ pub struct PoolOptions {
 
 pub struct PooledRsmq {
     pool: bb8::Pool<RedisConnectionManager>,
-    options: RsmqOptions,
     functions: RsmqFunctions<redis::aio::Connection>,
 }
 
@@ -58,29 +53,28 @@ impl Clone for PooledRsmq {
         PooledRsmq {
             pool: self.pool.clone(),
             functions: RsmqFunctions {
-                ns: self.options.ns.clone(),
-                realtime: self.options.realtime,
+                ns: self.functions.ns.clone(),
+                realtime: self.functions.realtime,
                 conn: PhantomData,
             },
-            options: self.options.clone(),
         }
     }
 }
 
 impl PooledRsmq {
     pub async fn new(options: RsmqOptions, pool_options: PoolOptions) -> RsmqResult<PooledRsmq> {
-        let password = if let Some(ref password) = options.password {
-            format!("redis:{}@", password)
-        } else {
-            "".to_string()
+        let conn_info = redis::ConnectionInfo {
+            addr: redis::ConnectionAddr::Tcp(options.host, options.port),
+            redis: redis::RedisConnectionInfo {
+                db: options.db.into(),
+                username: options.username,
+                password: options.password,
+            },
         };
 
-        let url = format!(
-            "redis://{}{}:{}/{}",
-            password, options.host, options.port, options.db
-        );
+        let client = redis::Client::open(conn_info)?;
 
-        let manager = RedisConnectionManager::new(url)?;
+        let manager = RedisConnectionManager::from_client(client)?;
         let builder = bb8::Pool::builder();
 
         let mut builder = if let Some(value) = pool_options.max_size {
@@ -100,7 +94,6 @@ impl PooledRsmq {
                 realtime: options.realtime,
                 conn: PhantomData,
             },
-            options,
         })
     }
 }
