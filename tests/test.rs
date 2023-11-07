@@ -42,6 +42,65 @@ fn send_receiving_deleting_message() {
 }
 
 #[test]
+fn send_receiving_delayed_message() {
+    let rt = tokio::runtime::Runtime::new().unwrap();
+
+    rt.block_on(async move {
+        let ctx = TestContext::new();
+        let connection = ctx.async_connection().await.unwrap();
+        let mut rsmq = Rsmq::new_with_connection(connection, false, None);
+
+        rsmq.create_queue("queue1", None, None, None).await.unwrap();
+
+        rsmq.send_message("queue1", "testmessage", Some(2))
+            .await
+            .unwrap();
+
+        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+
+        let message = rsmq
+            .receive_message::<String>("queue1", None)
+            .await
+            .unwrap();
+        assert!(message.is_none());
+
+        let message = rsmq
+            .receive_message::<String>("queue1", None)
+            .await
+            .unwrap();
+        assert!(message.is_none());
+
+        let message = rsmq
+            .receive_message::<String>("queue1", None)
+            .await
+            .unwrap();
+        assert!(message.is_none());
+
+        tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+
+        let message = rsmq
+            .receive_message::<String>("queue1", None)
+            .await
+            .unwrap();
+        assert!(message.is_some());
+
+        let message = message.unwrap();
+
+        rsmq.delete_message("queue1", &message.id).await.unwrap();
+
+        assert_eq!(message.message, "testmessage".to_string());
+
+        let message = rsmq
+            .receive_message::<String>("queue1", None)
+            .await
+            .unwrap();
+
+        assert!(message.is_none());
+        rsmq.delete_queue("queue1").await.unwrap();
+    })
+}
+
+#[test]
 fn send_receiving_deleting_message_vec_u8() {
     let rt = tokio::runtime::Runtime::new().unwrap();
 

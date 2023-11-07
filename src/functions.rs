@@ -48,7 +48,7 @@ impl<T: ConnectionLike> RsmqFunctions<T> {
         CHANGE_MESSAGE_VISIVILITY
             .key(format!("{}{}", self.ns, qname))
             .key(message_id)
-            .key(queue.ts + seconds_hidden * 1000)
+            .key(queue.ts + seconds_hidden)
             .invoke_async::<_, bool>(conn)
             .await?;
 
@@ -207,7 +207,7 @@ impl<T: ConnectionLike> RsmqFunctions<T> {
             .arg(&key)
             .cmd("ZCOUNT")
             .arg(&key)
-            .arg(time.0 * 1000)
+            .arg(time.0)
             .arg("+inf")
             .query_async(conn)
             .await?;
@@ -281,7 +281,7 @@ impl<T: ConnectionLike> RsmqFunctions<T> {
     ) -> RsmqResult<Option<RsmqMessage<E>>> {
         let queue = self.get_queue(conn, qname, false).await?;
 
-        let seconds_hidden = seconds_hidden.unwrap_or(queue.vt) * 1000;
+        let seconds_hidden = seconds_hidden.unwrap_or(queue.vt);
 
         number_in_range(seconds_hidden, 0, 9_999_999_000)?;
 
@@ -317,7 +317,7 @@ impl<T: ConnectionLike> RsmqFunctions<T> {
     ) -> RsmqResult<String> {
         let queue = self.get_queue(conn, qname, true).await?;
 
-        let delay = delay.unwrap_or(queue.delay) * 1000;
+        let delay = delay.unwrap_or(queue.delay);
         let key = format!("{}{}", self.ns, qname);
 
         number_in_range(delay, 0, 9_999_999)?;
@@ -455,7 +455,6 @@ impl<T: ConnectionLike> RsmqFunctions<T> {
             .await?;
 
         let time_seconds = (result.1).0;
-        let time_microseconds = (result.1).1;
 
         let (hmget_first, hmget_second, hmget_third) =
             match (result.0.get(0), result.0.get(1), result.0.get(2)) {
@@ -463,10 +462,8 @@ impl<T: ConnectionLike> RsmqFunctions<T> {
                 _ => return Err(RsmqError::QueueNotFound),
             };
 
-        let ts = time_seconds * 1000 + time_microseconds / 1000;
-
         let quid = if uid {
-            Some(radix_36(ts).to_string() + &RsmqFunctions::<T>::make_id(22)?)
+            Some(radix_36(time_seconds).to_string() + &RsmqFunctions::<T>::make_id(22)?)
         } else {
             None
         };
@@ -479,7 +476,7 @@ impl<T: ConnectionLike> RsmqFunctions<T> {
             maxsize: hmget_third
                 .parse()
                 .map_err(|_| RsmqError::CannotParseMaxsize)?,
-            ts,
+            ts: time_seconds,
             uid: quid,
         })
     }
