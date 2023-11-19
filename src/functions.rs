@@ -19,6 +19,8 @@ lazy_static! {
         Script::new(include_str!("./redis-scripts/receiveMessage.lua"));
 }
 
+static JS_COMPAT_MAX_TIME_MILLIS: u64 = 9_999_999_000;
+
 /// The main object of this library. Creates/Handles the redis connection and contains all the methods
 #[derive(Clone)]
 pub struct RsmqFunctions<T: ConnectionLike> {
@@ -46,7 +48,7 @@ impl<T: ConnectionLike> RsmqFunctions<T> {
 
         let queue = self.get_queue(conn, qname, false).await?;
 
-        number_in_range(hidden, 0, 9_999_999_000)?;
+        number_in_range(hidden, 0, JS_COMPAT_MAX_TIME_MILLIS)?;
 
         CHANGE_MESSAGE_VISIVILITY
             .key(format!("{}{}", self.ns, qname))
@@ -80,8 +82,8 @@ impl<T: ConnectionLike> RsmqFunctions<T> {
         let delay = get_redis_duration(delay, &Duration::ZERO);
         let maxsize = maxsize.unwrap_or(65536);
 
-        number_in_range(hidden, 0, 9_999_999_000)?;
-        number_in_range(delay, 0, 9_999_999)?;
+        number_in_range(hidden, 0, JS_COMPAT_MAX_TIME_MILLIS)?;
+        number_in_range(delay, 0, JS_COMPAT_MAX_TIME_MILLIS)?;
         if let Err(error) = number_in_range(maxsize, 1024, 65536) {
             if maxsize != -1 {
                 // TODO: Create another error in order to explain that -1 is allowed
@@ -295,7 +297,7 @@ impl<T: ConnectionLike> RsmqFunctions<T> {
         let queue = self.get_queue(conn, qname, false).await?;
 
         let hidden = get_redis_duration(hidden, &queue.vt);
-        number_in_range(hidden, 0, 9_999_999_000)?;
+        number_in_range(hidden, 0, JS_COMPAT_MAX_TIME_MILLIS)?;
 
         let result: (bool, String, Vec<u8>, u64, u64) = RECEIVE_MESSAGE
             .key(format!("{}{}", self.ns, qname))
@@ -332,7 +334,7 @@ impl<T: ConnectionLike> RsmqFunctions<T> {
         let delay = get_redis_duration(delay, &queue.delay);
         let key = format!("{}{}", self.ns, qname);
 
-        number_in_range(delay, 0, 9_999_999)?;
+        number_in_range(delay, 0, JS_COMPAT_MAX_TIME_MILLIS)?;
 
         let message: RedisBytes = message.into();
 
@@ -419,7 +421,7 @@ impl<T: ConnectionLike> RsmqFunctions<T> {
 
         if hidden.is_some() {
             let duration = get_redis_duration(hidden, &Duration::from_secs(30));
-            number_in_range(duration, 0, 9_999_999_000)?;
+            number_in_range(duration, 0, JS_COMPAT_MAX_TIME_MILLIS)?;
             commands = commands
                 .cmd("HSET")
                 .arg(&queue_name)
@@ -429,7 +431,7 @@ impl<T: ConnectionLike> RsmqFunctions<T> {
 
         if delay.is_some() {
             let delay = get_redis_duration(delay, &Duration::ZERO);
-            number_in_range(delay, 0, 9_999_999)?;
+            number_in_range(delay, 0, JS_COMPAT_MAX_TIME_MILLIS)?;
             commands = commands
                 .cmd("HSET")
                 .arg(&queue_name)
