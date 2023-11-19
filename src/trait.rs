@@ -8,17 +8,17 @@ use std::time::Duration;
 pub trait RsmqConnection {
     /// Change the hidden time of a already sent message.
     ///
-    /// `seconds_hidden` has a max time of 9_999_999 for compatibility reasons to this library JS version counterpart
+    /// `hidden` has a max time of 9_999_999 for compatibility reasons to this library JS version counterpart
     async fn change_message_visibility(
         &mut self,
         qname: &str,
         message_id: &str,
-        seconds_hidden: Duration,
+        hidden: Duration,
     ) -> RsmqResult<()>;
 
     /// Creates a new queue. Attributes can be later modified with "set_queue_attributes" method
     ///
-    /// seconds_hidden: Time the messages will be hidden when they are received with the "receive_message" method. It
+    /// hidden: Time the messages will be hidden when they are received with the "receive_message" method. It
     /// has a max time of 9_999_999 for compatibility reasons to this library JS version counterpart
     ///
     /// delay: Time the messages will be delayed before being delivered
@@ -28,7 +28,7 @@ pub trait RsmqConnection {
     async fn create_queue(
         &mut self,
         qname: &str,
-        seconds_hidden: Option<Duration>,
+        hidden: Option<Duration>,
         delay: Option<Duration>,
         maxsize: Option<i32>,
     ) -> RsmqResult<()>;
@@ -51,15 +51,15 @@ pub trait RsmqConnection {
         qname: &str,
     ) -> RsmqResult<Option<RsmqMessage<E>>>;
 
-    /// Returns a message. The message stays hidden for some time (defined by "seconds_hidden" argument or the queue
+    /// Returns a message. The message stays hidden for some time (defined by "hidden" argument or the queue
     /// settings). After that time, the message will be redelivered. In order to avoid the redelivery, you need to use
     /// the "delete_message" after this function.
     ///
-    /// `seconds_hidden` has a max time of 9_999_999 for compatibility reasons to this library JS version counterpart.
+    /// `hidden` has a max time of 9_999_999 for compatibility reasons to this library JS version counterpart.
     async fn receive_message<E: TryFrom<RedisBytes, Error = Vec<u8>>>(
         &mut self,
         qname: &str,
-        seconds_hidden: Option<Duration>,
+        hidden: Option<Duration>,
     ) -> RsmqResult<Option<RsmqMessage<E>>>;
 
     /// Sends a message to the queue. The message will be delayed some time (controlled by the "delayed" argument or
@@ -71,10 +71,10 @@ pub trait RsmqConnection {
         delay: Option<Duration>,
     ) -> RsmqResult<String>;
 
-    /// Modify the queue attributes. Keep in mind that "seconds_hidden" and "delay" can be overwritten when the message
-    /// is sent. "seconds_hidden" can be changed by the method "change_message_visibility"
+    /// Modify the queue attributes. Keep in mind that "hidden" and "delay" can be overwritten when the message
+    /// is sent. "hidden" can be changed by the method "change_message_visibility"
     ///
-    /// seconds_hidden: Time the messages will be hidden when they are received with the "receive_message" method. It
+    /// hidden: Time the messages will be hidden when they are received with the "receive_message" method. It
     /// has a max time of 9_999_999 for compatibility reasons to this library JS version counterpart
     ///
     /// delay: Time the messages will be delayed before being delivered
@@ -84,7 +84,7 @@ pub trait RsmqConnection {
     async fn set_queue_attributes(
         &mut self,
         qname: &str,
-        seconds_hidden: Option<Duration>,
+        hidden: Option<Duration>,
         delay: Option<Duration>,
         maxsize: Option<i64>,
     ) -> RsmqResult<RsmqQueueAttributes>;

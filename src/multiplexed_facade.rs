@@ -67,28 +67,22 @@ impl RsmqConnection for MultiplexedRsmq {
         &mut self,
         qname: &str,
         message_id: &str,
-        seconds_hidden: Duration,
+        hidden: Duration,
     ) -> RsmqResult<()> {
         self.functions
-            .change_message_visibility(&mut self.connection.0, qname, message_id, seconds_hidden)
+            .change_message_visibility(&mut self.connection.0, qname, message_id, hidden)
             .await
     }
 
     async fn create_queue(
         &mut self,
         qname: &str,
-        seconds_hidden: Option<Duration>,
+        hidden: Option<Duration>,
         delay: Option<Duration>,
         maxsize: Option<i32>,
     ) -> RsmqResult<()> {
         self.functions
-            .create_queue(
-                &mut self.connection.0,
-                qname,
-                seconds_hidden,
-                delay,
-                maxsize,
-            )
+            .create_queue(&mut self.connection.0, qname, hidden, delay, maxsize)
             .await
     }
 
@@ -124,10 +118,10 @@ impl RsmqConnection for MultiplexedRsmq {
     async fn receive_message<E: TryFrom<RedisBytes, Error = Vec<u8>>>(
         &mut self,
         qname: &str,
-        seconds_hidden: Option<Duration>,
+        hidden: Option<Duration>,
     ) -> RsmqResult<Option<RsmqMessage<E>>> {
         self.functions
-            .receive_message::<E>(&mut self.connection.0, qname, seconds_hidden)
+            .receive_message::<E>(&mut self.connection.0, qname, hidden)
             .await
     }
 
@@ -145,18 +139,12 @@ impl RsmqConnection for MultiplexedRsmq {
     async fn set_queue_attributes(
         &mut self,
         qname: &str,
-        seconds_hidden: Option<Duration>,
+        hidden: Option<Duration>,
         delay: Option<Duration>,
         maxsize: Option<i64>,
     ) -> RsmqResult<RsmqQueueAttributes> {
         self.functions
-            .set_queue_attributes(
-                &mut self.connection.0,
-                qname,
-                seconds_hidden,
-                delay,
-                maxsize,
-            )
+            .set_queue_attributes(&mut self.connection.0, qname, hidden, delay, maxsize)
             .await
     }
 }

@@ -40,18 +40,18 @@ impl<T: ConnectionLike> RsmqFunctions<T> {
         conn: &mut T,
         qname: &str,
         message_id: &str,
-        seconds_hidden: Duration,
+        hidden: Duration,
     ) -> RsmqResult<()> {
-        let seconds_hidden = get_redis_duration(Some(seconds_hidden), &Duration::from_secs(30));
+        let hidden = get_redis_duration(Some(hidden), &Duration::from_secs(30));
 
         let queue = self.get_queue(conn, qname, false).await?;
 
-        number_in_range(seconds_hidden, 0, 9_999_999_000)?;
+        number_in_range(hidden, 0, 9_999_999_000)?;
 
         CHANGE_MESSAGE_VISIVILITY
             .key(format!("{}{}", self.ns, qname))
             .key(message_id)
-            .key(queue.ts + seconds_hidden)
+            .key(queue.ts + hidden)
             .invoke_async::<_, bool>(conn)
             .await?;
 
@@ -60,7 +60,7 @@ impl<T: ConnectionLike> RsmqFunctions<T> {
 
     /// Creates a new queue. Attributes can be later modified with "set_queue_attributes" method
     ///
-    /// seconds_hidden: Time the messages will be hidden when they are received with the "receive_message" method.
+    /// hidden: Time the messages will be hidden when they are received with the "receive_message" method.
     ///
     /// delay: Time the messages will be delayed before being delivered
     ///
@@ -69,18 +69,18 @@ impl<T: ConnectionLike> RsmqFunctions<T> {
         &self,
         conn: &mut T,
         qname: &str,
-        seconds_hidden: Option<Duration>,
+        hidden: Option<Duration>,
         delay: Option<Duration>,
         maxsize: Option<i32>,
     ) -> RsmqResult<()> {
         valid_name_format(qname)?;
 
         let key = format!("{}{}:Q", self.ns, qname);
-        let seconds_hidden = get_redis_duration(seconds_hidden, &Duration::from_secs(30));
+        let hidden = get_redis_duration(hidden, &Duration::from_secs(30));
         let delay = get_redis_duration(delay, &Duration::ZERO);
         let maxsize = maxsize.unwrap_or(65536);
 
-        number_in_range(seconds_hidden, 0, 9_999_999_000)?;
+        number_in_range(hidden, 0, 9_999_999_000)?;
         number_in_range(delay, 0, 9_999_999)?;
         if let Err(error) = number_in_range(maxsize, 1024, 65536) {
             if maxsize != -1 {
@@ -96,7 +96,7 @@ impl<T: ConnectionLike> RsmqFunctions<T> {
             .cmd("HSETNX")
             .arg(&key)
             .arg("vt")
-            .arg(seconds_hidden)
+            .arg(hidden)
             .cmd("HSETNX")
             .arg(&key)
             .arg("delay")
@@ -283,24 +283,24 @@ impl<T: ConnectionLike> RsmqFunctions<T> {
         }))
     }
 
-    /// Returns a message. The message stays hidden for some time (defined by "seconds_hidden"
+    /// Returns a message. The message stays hidden for some time (defined by "hidden"
     /// argument or the queue settings). After that time, the message will be redelivered.
     /// In order to avoid the redelivery, you need to use the "delete_message" after this function.
     pub async fn receive_message<E: TryFrom<RedisBytes, Error = Vec<u8>>>(
         &self,
         conn: &mut T,
         qname: &str,
-        seconds_hidden: Option<Duration>,
+        hidden: Option<Duration>,
     ) -> RsmqResult<Option<RsmqMessage<E>>> {
         let queue = self.get_queue(conn, qname, false).await?;
 
-        let seconds_hidden = get_redis_duration(seconds_hidden, &queue.vt);
-        number_in_range(seconds_hidden, 0, 9_999_999_000)?;
+        let hidden = get_redis_duration(hidden, &queue.vt);
+        number_in_range(hidden, 0, 9_999_999_000)?;
 
         let result: (bool, String, Vec<u8>, u64, u64) = RECEIVE_MESSAGE
             .key(format!("{}{}", self.ns, qname))
             .key(queue.ts)
-            .key(queue.ts + seconds_hidden)
+            .key(queue.ts + hidden)
             .invoke_async(conn)
             .await?;
 
@@ -387,9 +387,9 @@ impl<T: ConnectionLike> RsmqFunctions<T> {
         Ok(queue_uid)
     }
 
-    /// Modify the queue attributes. Keep in mind that "seconds_hidden" and "delay" can be overwritten when the message is sent. "seconds_hidden" can be changed by the method "change_message_visibility"
+    /// Modify the queue attributes. Keep in mind that "hidden" and "delay" can be overwritten when the message is sent. "hidden" can be changed by the method "change_message_visibility"
     ///
-    /// seconds_hidden: Time the messages will be hidden when they are received with the "receive_message" method.
+    /// hidden: Time the messages will be hidden when they are received with the "receive_message" method.
     ///
     /// delay: Time the messages will be delayed before being delivered
     ///
@@ -398,7 +398,7 @@ impl<T: ConnectionLike> RsmqFunctions<T> {
         &self,
         conn: &mut T,
         qname: &str,
-        seconds_hidden: Option<Duration>,
+        hidden: Option<Duration>,
         delay: Option<Duration>,
         maxsize: Option<i64>,
     ) -> RsmqResult<RsmqQueueAttributes> {
@@ -417,8 +417,8 @@ impl<T: ConnectionLike> RsmqFunctions<T> {
             .arg("modified")
             .arg(time.0);
 
-        if seconds_hidden.is_some() {
-            let duration = get_redis_duration(seconds_hidden, &Duration::from_secs(30));
+        if hidden.is_some() {
+            let duration = get_redis_duration(hidden, &Duration::from_secs(30));
             number_in_range(duration, 0, 9_999_999_000)?;
             commands = commands
                 .cmd("HSET")

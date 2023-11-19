@@ -105,26 +105,26 @@ impl RsmqConnection for PooledRsmq {
         &mut self,
         qname: &str,
         message_id: &str,
-        seconds_hidden: Duration,
+        hidden: Duration,
     ) -> RsmqResult<()> {
         let mut conn = self.pool.get().await?;
 
         self.functions
-            .change_message_visibility(&mut conn, qname, message_id, seconds_hidden)
+            .change_message_visibility(&mut conn, qname, message_id, hidden)
             .await
     }
 
     async fn create_queue(
         &mut self,
         qname: &str,
-        seconds_hidden: Option<Duration>,
+        hidden: Option<Duration>,
         delay: Option<Duration>,
         maxsize: Option<i32>,
     ) -> RsmqResult<()> {
         let mut conn = self.pool.get().await?;
 
         self.functions
-            .create_queue(&mut conn, qname, seconds_hidden, delay, maxsize)
+            .create_queue(&mut conn, qname, hidden, delay, maxsize)
             .await
     }
 
@@ -162,12 +162,12 @@ impl RsmqConnection for PooledRsmq {
     async fn receive_message<E: TryFrom<RedisBytes, Error = Vec<u8>>>(
         &mut self,
         qname: &str,
-        seconds_hidden: Option<Duration>,
+        hidden: Option<Duration>,
     ) -> RsmqResult<Option<RsmqMessage<E>>> {
         let mut conn = self.pool.get().await?;
 
         self.functions
-            .receive_message::<E>(&mut conn, qname, seconds_hidden)
+            .receive_message::<E>(&mut conn, qname, hidden)
             .await
     }
 
@@ -187,14 +187,14 @@ impl RsmqConnection for PooledRsmq {
     async fn set_queue_attributes(
         &mut self,
         qname: &str,
-        seconds_hidden: Option<Duration>,
+        hidden: Option<Duration>,
         delay: Option<Duration>,
         maxsize: Option<i64>,
     ) -> RsmqResult<RsmqQueueAttributes> {
         let mut conn = self.pool.get().await?;
 
         self.functions
-            .set_queue_attributes(&mut conn, qname, seconds_hidden, delay, maxsize)
+            .set_queue_attributes(&mut conn, qname, hidden, delay, maxsize)
             .await
     }
 }
