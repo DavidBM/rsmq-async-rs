@@ -283,7 +283,7 @@ impl<T: ConnectionLike> RsmqFunctions<T> {
 
         let seconds_hidden = seconds_hidden.unwrap_or(queue.vt);
 
-        number_in_range(seconds_hidden, 0, 9_999_999_000)?;
+        number_in_range(seconds_hidden, 0, 9_999_999)?;
 
         let result: (bool, String, Vec<u8>, u64, u64) = RECEIVE_MESSAGE
             .key(format!("{}{}", self.ns, qname))
