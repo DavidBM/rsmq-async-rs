@@ -23,7 +23,4 @@ async-trait = "0.1"
 
 [dev-dependencies]
 net2 = "0.2"
-
-[dev-dependencies.tokio]
-version = "1"
-features = ["rt-multi-thread"]
+tokio = { version = "1", features = ["rt-multi-thread"]}
