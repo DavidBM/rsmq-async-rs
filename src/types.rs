@@ -1,9 +1,9 @@
-use std::convert::TryFrom;
+use std::{convert::TryFrom, time::Duration};
 
 #[derive(Debug)]
 pub(crate) struct QueueDescriptor {
-    pub vt: u64,
-    pub delay: u64,
+    pub vt: Duration,
+    pub delay: Duration,
     pub maxsize: i64,
     pub ts: u64,
     pub uid: Option<String>,
@@ -61,11 +61,11 @@ pub struct RsmqMessage<T: TryFrom<RedisBytes> = String> {
 /// Struct defining a queue. They are set on "create_queue" and "set_queue_attributes"
 #[derive(Debug, Clone)]
 pub struct RsmqQueueAttributes {
-    /// How many seconds the message will be hidden when is received by a client
-    pub vt: u64,
+    /// How long the message will be hidden when is received by a client
+    pub vt: Duration,
     /// How many second will take until the message is delivered to a client
     /// since it was sent
-    pub delay: u64,
+    pub delay: Duration,
     /// Max size of the message in bytes in the queue
     pub maxsize: u64,
     /// Number of messages received by the queue

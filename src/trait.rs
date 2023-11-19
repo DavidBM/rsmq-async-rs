@@ -2,17 +2,18 @@ use crate::types::RedisBytes;
 use crate::types::{RsmqMessage, RsmqQueueAttributes};
 use crate::RsmqResult;
 use core::convert::TryFrom;
+use std::time::Duration;
 
 #[async_trait::async_trait]
 pub trait RsmqConnection {
     /// Change the hidden time of a already sent message.
-    /// 
+    ///
     /// `seconds_hidden` has a max time of 9_999_999 for compatibility reasons to this library JS version counterpart
     async fn change_message_visibility(
         &mut self,
         qname: &str,
         message_id: &str,
-        seconds_hidden: u64,
+        seconds_hidden: Duration,
     ) -> RsmqResult<()>;
 
     /// Creates a new queue. Attributes can be later modified with "set_queue_attributes" method
@@ -27,8 +28,8 @@ pub trait RsmqConnection {
     async fn create_queue(
         &mut self,
         qname: &str,
-        seconds_hidden: Option<u32>,
-        delay: Option<u32>,
+        seconds_hidden: Option<Duration>,
+        delay: Option<Duration>,
         maxsize: Option<i32>,
     ) -> RsmqResult<()>;
 
@@ -53,21 +54,21 @@ pub trait RsmqConnection {
     /// Returns a message. The message stays hidden for some time (defined by "seconds_hidden" argument or the queue
     /// settings). After that time, the message will be redelivered. In order to avoid the redelivery, you need to use
     /// the "delete_message" after this function.
-    /// 
+    ///
     /// `seconds_hidden` has a max time of 9_999_999 for compatibility reasons to this library JS version counterpart.
     async fn receive_message<E: TryFrom<RedisBytes, Error = Vec<u8>>>(
         &mut self,
         qname: &str,
-        seconds_hidden: Option<u64>,
+        seconds_hidden: Option<Duration>,
     ) -> RsmqResult<Option<RsmqMessage<E>>>;
 
-    /// Sends a message to the queue. The message will be delayed some time (controlled by the "delayed" argument or 
+    /// Sends a message to the queue. The message will be delayed some time (controlled by the "delayed" argument or
     /// the queue settings) before being delivered to a client.
     async fn send_message<E: Into<RedisBytes> + Send>(
         &mut self,
         qname: &str,
         message: E,
-        delay: Option<u64>,
+        delay: Option<Duration>,
     ) -> RsmqResult<String>;
 
     /// Modify the queue attributes. Keep in mind that "seconds_hidden" and "delay" can be overwritten when the message
@@ -83,8 +84,8 @@ pub trait RsmqConnection {
     async fn set_queue_attributes(
         &mut self,
         qname: &str,
-        seconds_hidden: Option<u64>,
-        delay: Option<u64>,
+        seconds_hidden: Option<Duration>,
+        delay: Option<Duration>,
         maxsize: Option<i64>,
     ) -> RsmqResult<RsmqQueueAttributes>;
 }

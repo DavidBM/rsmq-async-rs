@@ -7,6 +7,7 @@ use async_trait::async_trait;
 use core::convert::TryFrom;
 use redis::RedisError;
 use std::marker::PhantomData;
+use std::time::Duration;
 
 #[derive(Clone, Debug)]
 pub struct RedisConnectionManager {
@@ -104,7 +105,7 @@ impl RsmqConnection for PooledRsmq {
         &mut self,
         qname: &str,
         message_id: &str,
-        seconds_hidden: u64,
+        seconds_hidden: Duration,
     ) -> RsmqResult<()> {
         let mut conn = self.pool.get().await?;
 
@@ -116,8 +117,8 @@ impl RsmqConnection for PooledRsmq {
     async fn create_queue(
         &mut self,
         qname: &str,
-        seconds_hidden: Option<u32>,
-        delay: Option<u32>,
+        seconds_hidden: Option<Duration>,
+        delay: Option<Duration>,
         maxsize: Option<i32>,
     ) -> RsmqResult<()> {
         let mut conn = self.pool.get().await?;
@@ -161,7 +162,7 @@ impl RsmqConnection for PooledRsmq {
     async fn receive_message<E: TryFrom<RedisBytes, Error = Vec<u8>>>(
         &mut self,
         qname: &str,
-        seconds_hidden: Option<u64>,
+        seconds_hidden: Option<Duration>,
     ) -> RsmqResult<Option<RsmqMessage<E>>> {
         let mut conn = self.pool.get().await?;
 
@@ -174,7 +175,7 @@ impl RsmqConnection for PooledRsmq {
         &mut self,
         qname: &str,
         message: E,
-        delay: Option<u64>,
+        delay: Option<Duration>,
     ) -> RsmqResult<String> {
         let mut conn = self.pool.get().await?;
 
@@ -186,8 +187,8 @@ impl RsmqConnection for PooledRsmq {
     async fn set_queue_attributes(
         &mut self,
         qname: &str,
-        seconds_hidden: Option<u64>,
-        delay: Option<u64>,
+        seconds_hidden: Option<Duration>,
+        delay: Option<Duration>,
         maxsize: Option<i64>,
     ) -> RsmqResult<RsmqQueueAttributes> {
         let mut conn = self.pool.get().await?;

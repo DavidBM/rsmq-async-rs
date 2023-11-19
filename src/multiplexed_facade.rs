@@ -4,6 +4,7 @@ use crate::types::{RedisBytes, RsmqMessage, RsmqOptions, RsmqQueueAttributes};
 use crate::RsmqResult;
 use core::convert::TryFrom;
 use core::marker::PhantomData;
+use std::time::Duration;
 
 #[derive(Clone)]
 struct RedisConnection(redis::aio::MultiplexedConnection);
@@ -66,7 +67,7 @@ impl RsmqConnection for MultiplexedRsmq {
         &mut self,
         qname: &str,
         message_id: &str,
-        seconds_hidden: u64,
+        seconds_hidden: Duration,
     ) -> RsmqResult<()> {
         self.functions
             .change_message_visibility(&mut self.connection.0, qname, message_id, seconds_hidden)
@@ -76,8 +77,8 @@ impl RsmqConnection for MultiplexedRsmq {
     async fn create_queue(
         &mut self,
         qname: &str,
-        seconds_hidden: Option<u32>,
-        delay: Option<u32>,
+        seconds_hidden: Option<Duration>,
+        delay: Option<Duration>,
         maxsize: Option<i32>,
     ) -> RsmqResult<()> {
         self.functions
@@ -123,7 +124,7 @@ impl RsmqConnection for MultiplexedRsmq {
     async fn receive_message<E: TryFrom<RedisBytes, Error = Vec<u8>>>(
         &mut self,
         qname: &str,
-        seconds_hidden: Option<u64>,
+        seconds_hidden: Option<Duration>,
     ) -> RsmqResult<Option<RsmqMessage<E>>> {
         self.functions
             .receive_message::<E>(&mut self.connection.0, qname, seconds_hidden)
@@ -134,7 +135,7 @@ impl RsmqConnection for MultiplexedRsmq {
         &mut self,
         qname: &str,
         message: E,
-        delay: Option<u64>,
+        delay: Option<Duration>,
     ) -> RsmqResult<String> {
         self.functions
             .send_message(&mut self.connection.0, qname, message, delay)
@@ -144,8 +145,8 @@ impl RsmqConnection for MultiplexedRsmq {
     async fn set_queue_attributes(
         &mut self,
         qname: &str,
-        seconds_hidden: Option<u64>,
-        delay: Option<u64>,
+        seconds_hidden: Option<Duration>,
+        delay: Option<Duration>,
         maxsize: Option<i64>,
     ) -> RsmqResult<RsmqQueueAttributes> {
         self.functions

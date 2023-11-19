@@ -9,6 +9,7 @@ use radix_fmt::radix_36;
 use rand::seq::IteratorRandom;
 use redis::{aio::ConnectionLike, pipe, Script};
 use std::convert::TryInto;
+use std::time::Duration;
 
 lazy_static! {
     static ref CHANGE_MESSAGE_VISIVILITY: Script =
@@ -39,11 +40,13 @@ impl<T: ConnectionLike> RsmqFunctions<T> {
         conn: &mut T,
         qname: &str,
         message_id: &str,
-        seconds_hidden: u64,
+        seconds_hidden: Duration,
     ) -> RsmqResult<()> {
+        let seconds_hidden = get_redis_duration(Some(seconds_hidden), &Duration::from_secs(30));
+
         let queue = self.get_queue(conn, qname, false).await?;
 
-        number_in_range(seconds_hidden, 0, 9_999_999)?;
+        number_in_range(seconds_hidden, 0, 9_999_999_000)?;
 
         CHANGE_MESSAGE_VISIVILITY
             .key(format!("{}{}", self.ns, qname))
@@ -66,18 +69,18 @@ impl<T: ConnectionLike> RsmqFunctions<T> {
         &self,
         conn: &mut T,
         qname: &str,
-        seconds_hidden: Option<u32>,
-        delay: Option<u32>,
+        seconds_hidden: Option<Duration>,
+        delay: Option<Duration>,
         maxsize: Option<i32>,
     ) -> RsmqResult<()> {
         valid_name_format(qname)?;
 
         let key = format!("{}{}:Q", self.ns, qname);
-        let seconds_hidden = seconds_hidden.unwrap_or(30);
-        let delay = delay.unwrap_or(0);
+        let seconds_hidden = get_redis_duration(seconds_hidden, &Duration::from_secs(30));
+        let delay = get_redis_duration(delay, &Duration::ZERO);
         let maxsize = maxsize.unwrap_or(65536);
 
-        number_in_range(seconds_hidden, 0, 9_999_999)?;
+        number_in_range(seconds_hidden, 0, 9_999_999_000)?;
         number_in_range(delay, 0, 9_999_999)?;
         if let Err(error) = number_in_range(maxsize, 1024, 65536) {
             if maxsize != -1 {
@@ -219,8 +222,18 @@ impl<T: ConnectionLike> RsmqFunctions<T> {
         }
 
         Ok(RsmqQueueAttributes {
-            vt: result.0.first().unwrap_or(&Some(0)).unwrap_or(0),
-            delay: result.0.get(1).unwrap_or(&Some(0)).unwrap_or(0),
+            vt: result
+                .0
+                .first()
+                .and_then(Option::as_ref)
+                .map(|dur| Duration::from_millis(*dur))
+                .unwrap_or(Duration::ZERO),
+            delay: result
+                .0
+                .get(1)
+                .and_then(Option::as_ref)
+                .map(|dur| Duration::from_millis(*dur))
+                .unwrap_or(Duration::ZERO),
             maxsize: result.0.get(2).unwrap_or(&Some(0)).unwrap_or(0),
             totalrecv: result.0.get(3).unwrap_or(&Some(0)).unwrap_or(0),
             totalsent: result.0.get(4).unwrap_or(&Some(0)).unwrap_or(0),
@@ -277,13 +290,12 @@ impl<T: ConnectionLike> RsmqFunctions<T> {
         &self,
         conn: &mut T,
         qname: &str,
-        seconds_hidden: Option<u64>,
+        seconds_hidden: Option<Duration>,
     ) -> RsmqResult<Option<RsmqMessage<E>>> {
         let queue = self.get_queue(conn, qname, false).await?;
 
-        let seconds_hidden = seconds_hidden.unwrap_or(queue.vt);
-
-        number_in_range(seconds_hidden, 0, 9_999_999)?;
+        let seconds_hidden = get_redis_duration(seconds_hidden, &queue.vt);
+        number_in_range(seconds_hidden, 0, 9_999_999_000)?;
 
         let result: (bool, String, Vec<u8>, u64, u64) = RECEIVE_MESSAGE
             .key(format!("{}{}", self.ns, qname))
@@ -313,11 +325,11 @@ impl<T: ConnectionLike> RsmqFunctions<T> {
         conn: &mut T,
         qname: &str,
         message: E,
-        delay: Option<u64>,
+        delay: Option<Duration>,
     ) -> RsmqResult<String> {
         let queue = self.get_queue(conn, qname, true).await?;
 
-        let delay = delay.unwrap_or(queue.delay);
+        let delay = get_redis_duration(delay, &queue.delay);
         let key = format!("{}{}", self.ns, qname);
 
         number_in_range(delay, 0, 9_999_999)?;
@@ -386,8 +398,8 @@ impl<T: ConnectionLike> RsmqFunctions<T> {
         &self,
         conn: &mut T,
         qname: &str,
-        seconds_hidden: Option<u64>,
-        delay: Option<u64>,
+        seconds_hidden: Option<Duration>,
+        delay: Option<Duration>,
         maxsize: Option<i64>,
     ) -> RsmqResult<RsmqQueueAttributes> {
         self.get_queue(conn, qname, false).await?;
@@ -405,8 +417,9 @@ impl<T: ConnectionLike> RsmqFunctions<T> {
             .arg("modified")
             .arg(time.0);
 
-        if let Some(duration) = seconds_hidden {
-            number_in_range(duration, 0, 9_999_999)?;
+        if seconds_hidden.is_some() {
+            let duration = get_redis_duration(seconds_hidden, &Duration::from_secs(30));
+            number_in_range(duration, 0, 9_999_999_000)?;
             commands = commands
                 .cmd("HSET")
                 .arg(&queue_name)
@@ -414,7 +427,8 @@ impl<T: ConnectionLike> RsmqFunctions<T> {
                 .arg(duration);
         }
 
-        if let Some(delay) = delay {
+        if delay.is_some() {
+            let delay = get_redis_duration(delay, &Duration::ZERO);
             number_in_range(delay, 0, 9_999_999)?;
             commands = commands
                 .cmd("HSET")
@@ -454,7 +468,7 @@ impl<T: ConnectionLike> RsmqFunctions<T> {
             .query_async(conn)
             .await?;
 
-        let time_seconds = (result.1).0;
+        let time_millis = (result.1).0 * 1000;
 
         let (hmget_first, hmget_second, hmget_third) =
             match (result.0.get(0), result.0.get(1), result.0.get(2)) {
@@ -463,20 +477,22 @@ impl<T: ConnectionLike> RsmqFunctions<T> {
             };
 
         let quid = if uid {
-            Some(radix_36(time_seconds).to_string() + &RsmqFunctions::<T>::make_id(22)?)
+            Some(radix_36(time_millis).to_string() + &RsmqFunctions::<T>::make_id(22)?)
         } else {
             None
         };
 
         Ok(QueueDescriptor {
-            vt: hmget_first.parse().map_err(|_| RsmqError::CannotParseVT)?,
-            delay: hmget_second
-                .parse()
-                .map_err(|_| RsmqError::CannotParseDelay)?,
+            vt: Duration::from_millis(hmget_first.parse().map_err(|_| RsmqError::CannotParseVT)?),
+            delay: Duration::from_millis(
+                hmget_second
+                    .parse()
+                    .map_err(|_| RsmqError::CannotParseDelay)?,
+            ),
             maxsize: hmget_third
                 .parse()
                 .map_err(|_| RsmqError::CannotParseMaxsize)?,
-            ts: time_seconds,
+            ts: time_millis,
             uid: quid,
         })
     }
@@ -526,4 +542,12 @@ fn valid_name_format(name: &str) -> RsmqResult<()> {
     }
 
     Ok(())
+}
+
+fn get_redis_duration(d: Option<Duration>, default: &Duration) -> u64 {
+    d.as_ref()
+        .map(Duration::as_millis)
+        .map(u64::try_from)
+        .and_then(Result::ok)
+        .unwrap_or_else(|| u64::try_from(default.as_millis()).ok().unwrap_or(30_000))
 }

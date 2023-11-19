@@ -1,7 +1,7 @@
 mod support;
 
 use rsmq_async::{RedisBytes, Rsmq, RsmqConnection, RsmqError};
-use std::convert::TryFrom;
+use std::{convert::TryFrom, time::Duration};
 use support::*;
 
 #[test]
@@ -52,7 +52,7 @@ fn send_receiving_delayed_message() {
 
         rsmq.create_queue("queue1", None, None, None).await.unwrap();
 
-        rsmq.send_message("queue1", "testmessage", Some(2))
+        rsmq.send_message("queue1", "testmessage", Some(Duration::from_secs(2)))
             .await
             .unwrap();
 
@@ -287,8 +287,8 @@ fn updating_queue() {
 
         let attributes = rsmq.get_queue_attributes("queue4").await.unwrap();
 
-        assert_eq!(attributes.vt, 30);
-        assert_eq!(attributes.delay, 0);
+        assert_eq!(attributes.vt, Duration::from_secs(30));
+        assert_eq!(attributes.delay, Duration::ZERO);
         assert_eq!(attributes.maxsize, 65536);
         assert_eq!(attributes.totalrecv, 0);
         assert_eq!(attributes.totalsent, 0);
@@ -297,14 +297,19 @@ fn updating_queue() {
         assert!(attributes.created > 0);
         assert!(attributes.modified > 0);
 
-        rsmq.set_queue_attributes("queue4", Some(45), Some(5), Some(2048))
-            .await
-            .unwrap();
+        rsmq.set_queue_attributes(
+            "queue4",
+            Some(Duration::from_secs(45)),
+            Some(Duration::from_secs(5)),
+            Some(2048),
+        )
+        .await
+        .unwrap();
 
         let attributes = rsmq.get_queue_attributes("queue4").await.unwrap();
 
-        assert_eq!(attributes.vt, 45);
-        assert_eq!(attributes.delay, 5);
+        assert_eq!(attributes.vt, Duration::from_secs(45));
+        assert_eq!(attributes.delay, Duration::from_secs(5));
         assert_eq!(attributes.maxsize, 2048);
         assert_eq!(attributes.totalrecv, 0);
         assert_eq!(attributes.totalsent, 0);
@@ -357,7 +362,12 @@ fn deleting_queue() {
         }
 
         let result = rsmq
-            .set_queue_attributes("queue5", Some(45), Some(5), Some(2048))
+            .set_queue_attributes(
+                "queue5",
+                Some(Duration::from_secs(45)),
+                Some(Duration::from_secs(5)),
+                Some(2048),
+            )
             .await;
 
         assert!(result.is_err());
@@ -398,7 +408,7 @@ fn change_message_visibility() {
             .unwrap();
         assert!(message.is_none());
 
-        rsmq.change_message_visibility("queue6", &message_id, 0)
+        rsmq.change_message_visibility("queue6", &message_id, Duration::ZERO)
             .await
             .unwrap();
 
