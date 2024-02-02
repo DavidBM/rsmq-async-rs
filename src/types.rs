@@ -67,7 +67,7 @@ pub struct RsmqQueueAttributes {
     /// since it was sent
     pub delay: Duration,
     /// Max size of the message in bytes in the queue
-    pub maxsize: u64,
+    pub maxsize: i64,
     /// Number of messages received by the queue
     pub totalrecv: u64,
     /// Number of messages sent by the queue

@@ -426,3 +426,23 @@ fn change_message_visibility() {
         rsmq.delete_queue("queue6").await.unwrap();
     })
 }
+
+#[test]
+fn change_queue_size() {
+    let rt = tokio::runtime::Runtime::new().unwrap();
+
+    rt.block_on(async move {
+        let ctx = TestContext::new();
+        let connection = ctx.async_connection().await.unwrap();
+        let mut rsmq = Rsmq::new_with_connection(connection, false, None);
+
+        rsmq.create_queue("queue6", None, None, None).await.unwrap();
+
+        rsmq.set_queue_attributes("queue6", None, None, Some(-1)).await.unwrap();
+
+        let attributes = rsmq.get_queue_attributes("queue6").await.unwrap();
+
+        assert_eq!(attributes.maxsize, -1);
+
+    })
+}

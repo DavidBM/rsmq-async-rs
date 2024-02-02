@@ -197,7 +197,7 @@ impl<T: ConnectionLike> RsmqFunctions<T> {
 
         let time: (u64, u64) = redis::cmd("TIME").query_async(conn).await?;
 
-        let result: (Vec<Option<u64>>, u64, u64) = pipe()
+        let result: (Vec<Option<i64>>, u64, u64) = pipe()
             .atomic()
             .cmd("HMGET")
             .arg(format!("{}:Q", key))
@@ -228,19 +228,19 @@ impl<T: ConnectionLike> RsmqFunctions<T> {
                 .0
                 .first()
                 .and_then(Option::as_ref)
-                .map(|dur| Duration::from_millis(*dur))
+                .map(|dur| Duration::from_millis((*dur).try_into().unwrap_or(0)))
                 .unwrap_or(Duration::ZERO),
             delay: result
                 .0
                 .get(1)
                 .and_then(Option::as_ref)
-                .map(|dur| Duration::from_millis(*dur))
+                .map(|dur| Duration::from_millis((*dur).try_into().unwrap_or(0)))
                 .unwrap_or(Duration::ZERO),
             maxsize: result.0.get(2).unwrap_or(&Some(0)).unwrap_or(0),
-            totalrecv: result.0.get(3).unwrap_or(&Some(0)).unwrap_or(0),
-            totalsent: result.0.get(4).unwrap_or(&Some(0)).unwrap_or(0),
-            created: result.0.get(5).unwrap_or(&Some(0)).unwrap_or(0),
-            modified: result.0.get(6).unwrap_or(&Some(0)).unwrap_or(0),
+            totalrecv: u64::try_from(result.0.get(3).unwrap_or(&Some(0)).unwrap_or(0)).unwrap_or(0),
+            totalsent: u64::try_from(result.0.get(4).unwrap_or(&Some(0)).unwrap_or(0)).unwrap_or(0),
+            created: u64::try_from(result.0.get(5).unwrap_or(&Some(0)).unwrap_or(0)).unwrap_or(0),
+            modified: u64::try_from(result.0.get(6).unwrap_or(&Some(0)).unwrap_or(0)).unwrap_or(0),
             msgs: result.1,
             hiddenmsgs: result.2,
         })
@@ -473,7 +473,7 @@ impl<T: ConnectionLike> RsmqFunctions<T> {
         let time_millis = (result.1).0 * 1000;
 
         let (hmget_first, hmget_second, hmget_third) =
-            match (result.0.get(0), result.0.get(1), result.0.get(2)) {
+            match (result.0.first(), result.0.get(1), result.0.get(2)) {
                 (Some(Some(v0)), Some(Some(v1)), Some(Some(v2))) => (v0, v1, v2),
                 _ => return Err(RsmqError::QueueNotFound),
             };
