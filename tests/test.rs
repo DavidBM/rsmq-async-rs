@@ -438,11 +438,12 @@ fn change_queue_size() {
 
         rsmq.create_queue("queue6", None, None, None).await.unwrap();
 
-        rsmq.set_queue_attributes("queue6", None, None, Some(-1)).await.unwrap();
+        rsmq.set_queue_attributes("queue6", None, None, Some(-1))
+            .await
+            .unwrap();
 
         let attributes = rsmq.get_queue_attributes("queue6").await.unwrap();
 
         assert_eq!(attributes.maxsize, -1);
-
     })
 }
