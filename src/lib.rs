@@ -96,14 +96,14 @@
 //! ```
 //!
 //! Where `"tokio-comp"` can also be `"async-std-comp"`.
-//! 
+//!
 //! ## `Rsmq` vs `PooledRsmq`
-//! 
+//!
 //! In almost all workloads you might prefer the `Rsmq` object, as it works with a multiplexed connection.
-//! 
+//!
 //! For specific workloads, where you might be sending a lof of data (images, documents, big blobs) you might prefer to
 //! use the `PooledRsmq` and configure it with `PoolOptions`.
-//! 
+//!
 //! They both use the `redis::aio::MultiplexedConnection`, but the pooled connection can be configured to spawn several
 //! of those, so one operation won't block the other.
 //!
