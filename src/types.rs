@@ -85,8 +85,8 @@ pub struct RsmqQueueAttributes {
 }
 
 /// Internal value representing the redis bytes.
-/// It implements TryFrom String and Vec<u8>
-/// and From String, &str, Vec<u8> and &[u8] to
+/// It implements `TryFrom` `String` and `Vec<u8>`
+/// and `From String`, `&str`, `Vec<u8>` and `&[u8]` to
 /// itself.
 ///
 /// You can add your custom TryFrom and From
@@ -104,8 +104,6 @@ pub struct RsmqQueueAttributes {
 ///     type Error = Vec<u8>;
 ///
 ///     fn try_from(bytes: RedisBytes) -> Result<Self, Self::Error> {
-///         // For the library user, they can just call into_bytes
-///         // for getting the original Vec<u8>
 ///         String::from_utf8(bytes.0).map_err(|e| e.into_bytes())
 ///     }
 /// }
@@ -114,7 +112,7 @@ pub struct RsmqQueueAttributes {
 pub struct RedisBytes(pub(crate) Vec<u8>);
 
 impl RedisBytes {
-    /// Consumes the value and returns the raw bytes as Vec<u8>
+    /// Consumes the value and returns the raw bytes as `Vec<u8>`
     pub fn into_bytes(self) -> Vec<u8> {
         self.0
     }

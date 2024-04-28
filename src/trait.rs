@@ -37,8 +37,10 @@ pub trait RsmqConnection {
     ///
     /// Important to use when you are using receive_message.
     async fn delete_message(&mut self, qname: &str, id: &str) -> RsmqResult<bool>;
+
     /// Deletes the queue and all the messages on it
     async fn delete_queue(&mut self, qname: &str) -> RsmqResult<()>;
+
     /// Returns the queue attributes and statistics
     async fn get_queue_attributes(&mut self, qname: &str) -> RsmqResult<RsmqQueueAttributes>;
 

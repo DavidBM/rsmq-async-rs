@@ -11,19 +11,19 @@ struct RedisConnection(redis::aio::MultiplexedConnection);
 
 impl std::fmt::Debug for RedisConnection {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        write!(f, "RedisAsyncConnnection")
+        write!(f, "MultiplexedRedisAsyncConnnection")
     }
 }
 
 #[derive(Debug, Clone)]
-pub struct MultiplexedRsmq {
+pub struct Rsmq {
     connection: RedisConnection,
     functions: RsmqFunctions<redis::aio::MultiplexedConnection>,
 }
 
-impl MultiplexedRsmq {
+impl Rsmq {
     /// Creates a new RSMQ instance, including its connection
-    pub async fn new(options: RsmqOptions) -> RsmqResult<MultiplexedRsmq> {
+    pub async fn new(options: RsmqOptions) -> RsmqResult<Rsmq> {
         let conn_info = redis::ConnectionInfo {
             addr: redis::ConnectionAddr::Tcp(options.host, options.port),
             redis: redis::RedisConnectionInfo {
@@ -37,7 +37,7 @@ impl MultiplexedRsmq {
 
         let connection = client.get_multiplexed_async_connection().await?;
 
-        Ok(MultiplexedRsmq::new_with_connection(
+        Ok(Rsmq::new_with_connection(
             connection,
             options.realtime,
             Some(&options.ns),
@@ -49,8 +49,8 @@ impl MultiplexedRsmq {
         connection: redis::aio::MultiplexedConnection,
         realtime: bool,
         ns: Option<&str>,
-    ) -> MultiplexedRsmq {
-        MultiplexedRsmq {
+    ) -> Rsmq {
+        Rsmq {
             connection: RedisConnection(connection),
             functions: RsmqFunctions {
                 ns: ns.unwrap_or("rsmq").to_string(),
@@ -62,7 +62,7 @@ impl MultiplexedRsmq {
 }
 
 #[async_trait::async_trait]
-impl RsmqConnection for MultiplexedRsmq {
+impl RsmqConnection for Rsmq {
     async fn change_message_visibility(
         &mut self,
         qname: &str,
