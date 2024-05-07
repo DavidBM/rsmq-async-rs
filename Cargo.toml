@@ -13,19 +13,19 @@ documentation = "https://docs.rs/rsmq_async/"
 readme = "README.md"
 
 [dependencies]
-lazy_static = "1"
-rand = "0.8"
-radix_fmt = "1"
-bb8 = "0.8"
-thiserror = "1"
-redis = { version = "0.25", features = ["tokio-comp", "async-std-comp"] }
-async-trait = "0.1"
+lazy_static = "^1"
+rand = "^0.8"
+radix_fmt = "^1"
+bb8 = "^0.8"
+thiserror = "^1"
+redis = { version = "^0.25", default-features = false, features = ["acl", "keep-alive", "script"] }
+async-trait = "^0.1"
 
 [dev-dependencies]
-net2 = "0.2"
-tokio = { version = "1", features = ["rt-multi-thread"]}
+net2 = "^0.2"
+tokio = { version = "^1", features = ["rt-multi-thread"]}
 
 [features]
-default = ["tokio-comp", "async-std-comp"]
+default = ["tokio-comp"]
 tokio-comp = ["redis/tokio-comp"]
 async-std-comp = ["redis/async-std-comp"]
