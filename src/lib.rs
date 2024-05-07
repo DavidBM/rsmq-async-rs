@@ -130,7 +130,7 @@
 //! ```rust,ignore
 //!
 //! impl TryFrom<RedisBytes> for String {
-//!      
+//!
 //!     type Error = Vec<u8>; // Always set Error as Vec<u8>;
 //!
 //!     fn try_from(bytes: RedisBytes) -> Result<Self, Self::Error> {
@@ -154,7 +154,7 @@ mod types;
 pub use error::RsmqError;
 pub use error::RsmqResult;
 pub use multiplexed_facade::Rsmq;
-pub use pooled_facade::{PoolOptions, PooledRsmq};
+pub use pooled_facade::{PoolOptions, PooledRsmq, RedisConnectionManager};
 pub use r#trait::RsmqConnection;
 pub use types::RedisBytes;
 pub use types::RsmqMessage;
