@@ -1,6 +1,6 @@
 [package]
 name = "rsmq_async"
-version = "9.0.0"
+version = "10.0.0"
 authors = [
     "David Bonet <webbonet@gmail.com>"
 ]
