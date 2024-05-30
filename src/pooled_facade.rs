@@ -100,6 +100,21 @@ impl PooledRsmq {
             },
         })
     }
+
+    pub fn new_with_pool(
+        pool: bb8::Pool<RedisConnectionManager>,
+        realtime: bool,
+        ns: Option<&str>,
+    ) -> PooledRsmq {
+        PooledRsmq {
+            pool,
+            functions: RsmqFunctions {
+                ns: ns.unwrap_or("rsmq").to_string(),
+                realtime,
+                conn: PhantomData,
+            },
+        }
+    }
 }
 
 #[async_trait::async_trait]

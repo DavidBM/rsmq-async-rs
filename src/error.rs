@@ -7,7 +7,7 @@ pub type RsmqResult<T> = Result<T, RsmqError>;
 
 /// This is the error type for any oprtation with this
 /// library. It derives `ThisError`
-#[derive(ThisError, Debug)]
+#[derive(ThisError, Debug, PartialEq)]
 pub enum RsmqError {
     #[error("Pool run error: `{0:?}`")]
     RunError(#[from] RunError<RedisError>),
