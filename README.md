@@ -87,6 +87,11 @@ and issue a `receiveMessage` then. However make sure not to listen with multiple
 workers for new messages with SUBSCRIBE to prevent multiple simultaneous
 `receiveMessage` calls.
 
+## Sync option
+
+If you enable the `sync` feature, you can import a `RsmqSync` object with sync
+versions of the methods.
+
 ## Guarantees
 
 If you want to implement "at least one delivery" guarantee, you need to receive

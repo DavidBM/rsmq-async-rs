@@ -148,6 +148,8 @@ mod error;
 mod functions;
 mod multiplexed_facade;
 mod pooled_facade;
+#[cfg(feature = "sync")]
+mod sync_facade;
 mod r#trait;
 mod types;
 
@@ -156,6 +158,8 @@ pub use error::RsmqResult;
 pub use multiplexed_facade::Rsmq;
 pub use pooled_facade::{PoolOptions, PooledRsmq, RedisConnectionManager};
 pub use r#trait::RsmqConnection;
+#[cfg(feature = "sync")]
+pub use sync_facade::RsmqSync;
 pub use types::RedisBytes;
 pub use types::RsmqMessage;
 pub use types::RsmqOptions;

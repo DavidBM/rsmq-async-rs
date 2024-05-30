@@ -41,4 +41,21 @@ pub enum RsmqError {
     CannotParseMaxsize,
     #[error("The message received from Redis cannot be decoded into the expected type. Try to use Vec<u8> instead.")]
     CannotDecodeMessage(Vec<u8>),
+    #[error("Cannot start tokio runtime for sync facade")]
+    TokioStart(Different<std::io::Error>),
+}
+
+#[derive(Debug)]
+pub struct Different<T>(pub T);
+
+impl<T> PartialEq for Different<T> {
+    fn eq(&self, _other: &Self) -> bool {
+        false
+    }
+}
+
+impl<T> From<T> for Different<T> {
+    fn from(value: T) -> Self {
+        Different(value)
+    }
 }
