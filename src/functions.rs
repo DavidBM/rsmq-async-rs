@@ -21,6 +21,11 @@ lazy_static! {
 
 const JS_COMPAT_MAX_TIME_MILLIS: u64 = 9_999_999_000;
 
+#[cfg(feature = "break-js-comp")]
+const TIME_MULTIPLIER: u64 = 1000;
+#[cfg(not(feature = "break-js-comp"))]
+const TIME_MULTIPLIER: u64 = 1;
+
 /// The main object of this library. Creates/Handles the redis connection and contains all the methods
 #[derive(Clone)]
 pub struct RsmqFunctions<T: ConnectionLike> {
@@ -133,7 +138,7 @@ impl<T: ConnectionLike> RsmqFunctions<T> {
         redis::cmd("SADD")
             .arg(format!("{}:QUEUES", self.ns))
             .arg(qname)
-            .query_async(conn)
+            .query_async::<_, ()>(conn)
             .await?;
 
         Ok(())
@@ -212,7 +217,7 @@ impl<T: ConnectionLike> RsmqFunctions<T> {
             .arg(&key)
             .cmd("ZCOUNT")
             .arg(&key)
-            .arg(time.0 * 1000)
+            .arg(time.0 * TIME_MULTIPLIER)
             .arg("+inf")
             .query_async(conn)
             .await?;
@@ -382,7 +387,7 @@ impl<T: ConnectionLike> RsmqFunctions<T> {
             redis::cmd("PUBLISH")
                 .arg(format!("{}:rt:{}", self.ns, qname))
                 .arg(result[3])
-                .query_async(conn)
+                .query_async::<_, ()>(conn)
                 .await?;
         }
 
@@ -453,7 +458,7 @@ impl<T: ConnectionLike> RsmqFunctions<T> {
                 .arg(maxsize);
         }
 
-        commands.query_async(conn).await?;
+        commands.query_async::<_, ()>(conn).await?;
 
         self.get_queue_attributes(conn, qname).await
     }
@@ -469,8 +474,11 @@ impl<T: ConnectionLike> RsmqFunctions<T> {
             .cmd("TIME")
             .query_async(conn)
             .await?;
-
-        let time_micros = (result.1).0 * 1000000 + (result.1).1;
+        
+        #[cfg(feature = "break-js-comp")]
+        let time = (result.1).0 * 1000000 + (result.1).1;
+        #[cfg(not(feature = "break-js-comp"))]
+        let time = (result.1).0 * 1000;
 
         let (hmget_first, hmget_second, hmget_third) =
             match (result.0.first(), result.0.get(1), result.0.get(2)) {
@@ -479,7 +487,7 @@ impl<T: ConnectionLike> RsmqFunctions<T> {
             };
 
         let quid = if uid {
-            Some(radix_36(time_micros).to_string() + &RsmqFunctions::<T>::make_id(22)?)
+            Some(radix_36(time).to_string() + &RsmqFunctions::<T>::make_id(22)?)
         } else {
             None
         };
@@ -494,7 +502,7 @@ impl<T: ConnectionLike> RsmqFunctions<T> {
             maxsize: hmget_third
                 .parse()
                 .map_err(|_| RsmqError::CannotParseMaxsize)?,
-            ts: time_micros / 1000,
+            ts: time / TIME_MULTIPLIER,
             uid: quid,
         })
     }
