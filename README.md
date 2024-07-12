@@ -92,6 +92,17 @@ workers for new messages with SUBSCRIBE to prevent multiple simultaneous
 If you enable the `sync` feature, you can import a `RsmqSync` object with sync
 versions of the methods.
 
+## Time Precision
+
+By default this library keeps compatibility with the JS counterpart. If you require 
+sub-second precision or are sending many messages very close together and require to
+keep track of them with more precision than one second, you can enable the feature
+`break-js-comp` like this on your `Cargo.toml`
+
+```toml
+rsmq_async = { version = "11", features = [ "break-js-comp" ] }
+```
+
 ## Guarantees
 
 If you want to implement "at least one delivery" guarantee, you need to receive

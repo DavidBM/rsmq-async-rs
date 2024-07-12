@@ -448,6 +448,7 @@ fn change_queue_size() {
     })
 }
 
+#[cfg(feature = "break-js-comp")]
 #[test]
 fn sent_messages_must_keep_order() {
     let rt = tokio::runtime::Runtime::new().unwrap();
