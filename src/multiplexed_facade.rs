@@ -1,4 +1,4 @@
-use crate::functions::RsmqFunctions;
+use crate::functions::{CachedScript, RsmqFunctions};
 use crate::r#trait::RsmqConnection;
 use crate::types::{RedisBytes, RsmqMessage, RsmqOptions, RsmqQueueAttributes};
 use crate::RsmqResult;
@@ -19,6 +19,7 @@ impl std::fmt::Debug for RedisConnection {
 pub struct Rsmq {
     connection: RedisConnection,
     functions: RsmqFunctions<redis::aio::MultiplexedConnection>,
+    scripts: CachedScript,
 }
 
 impl Rsmq {
@@ -37,27 +38,28 @@ impl Rsmq {
 
         let connection = client.get_multiplexed_async_connection().await?;
 
-        Ok(Rsmq::new_with_connection(
-            connection,
-            options.realtime,
-            Some(&options.ns),
-        ))
+        Rsmq::new_with_connection(connection, options.realtime, Some(&options.ns)).await
     }
 
     /// Special method for when you already have a redis-rs connection and you don't want redis_async to create a new one.
-    pub fn new_with_connection(
-        connection: redis::aio::MultiplexedConnection,
+    pub async fn new_with_connection(
+        mut connection: redis::aio::MultiplexedConnection,
         realtime: bool,
         ns: Option<&str>,
-    ) -> Rsmq {
-        Rsmq {
+    ) -> RsmqResult<Rsmq> {
+        let functions = RsmqFunctions {
+            ns: ns.unwrap_or("rsmq").to_string(),
+            realtime,
+            conn: PhantomData,
+        };
+
+        let scripts = functions.load_scripts(&mut connection).await?;
+
+        Ok(Rsmq {
             connection: RedisConnection(connection),
-            functions: RsmqFunctions {
-                ns: ns.unwrap_or("rsmq").to_string(),
-                realtime,
-                conn: PhantomData,
-            },
-        }
+            functions,
+            scripts,
+        })
     }
 }
 
@@ -70,7 +72,13 @@ impl RsmqConnection for Rsmq {
         hidden: Duration,
     ) -> RsmqResult<()> {
         self.functions
-            .change_message_visibility(&mut self.connection.0, qname, message_id, hidden)
+            .change_message_visibility(
+                &mut self.connection.0,
+                qname,
+                message_id,
+                hidden,
+                &self.scripts,
+            )
             .await
     }
 
@@ -111,7 +119,7 @@ impl RsmqConnection for Rsmq {
         qname: &str,
     ) -> RsmqResult<Option<RsmqMessage<E>>> {
         self.functions
-            .pop_message::<E>(&mut self.connection.0, qname)
+            .pop_message::<E>(&mut self.connection.0, qname, &self.scripts)
             .await
     }
 
@@ -121,7 +129,7 @@ impl RsmqConnection for Rsmq {
         hidden: Option<Duration>,
     ) -> RsmqResult<Option<RsmqMessage<E>>> {
         self.functions
-            .receive_message::<E>(&mut self.connection.0, qname, hidden)
+            .receive_message::<E>(&mut self.connection.0, qname, hidden, &self.scripts)
             .await
     }
 

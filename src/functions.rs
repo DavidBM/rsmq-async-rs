@@ -4,20 +4,11 @@ use crate::{
     RsmqError, RsmqResult,
 };
 use core::convert::TryFrom;
-use lazy_static::lazy_static;
 use radix_fmt::radix_36;
 use rand::seq::IteratorRandom;
-use redis::{aio::ConnectionLike, pipe, Script};
+use redis::{aio::ConnectionLike, pipe};
 use std::convert::TryInto;
 use std::time::Duration;
-
-lazy_static! {
-    static ref CHANGE_MESSAGE_VISIVILITY: Script =
-        Script::new(include_str!("./redis-scripts/changeMessageVisibility.lua"));
-    static ref POP_MESSAGE: Script = Script::new(include_str!("./redis-scripts/popMessage.lua"));
-    static ref RECEIVE_MESSAGE: Script =
-        Script::new(include_str!("./redis-scripts/receiveMessage.lua"));
-}
 
 const JS_COMPAT_MAX_TIME_MILLIS: u64 = 9_999_999_000;
 
@@ -40,6 +31,75 @@ impl<T: ConnectionLike> std::fmt::Debug for RsmqFunctions<T> {
     }
 }
 
+#[derive(Debug, Clone)]
+pub struct CachedScript {
+    change_message_visibility_sha1: String,
+    receive_message_sha1: String,
+}
+
+impl CachedScript {
+    async fn init<T: ConnectionLike>(conn: &mut T) -> RsmqResult<Self> {
+        let change_message_visibility_sha1: String = redis::cmd("SCRIPT")
+            .arg("LOAD")
+            .arg(include_str!("./redis-scripts/changeMessageVisibility.lua"))
+            .query_async(conn)
+            .await?;
+        let receive_message_sha1: String = redis::cmd("SCRIPT")
+            .arg("LOAD")
+            .arg(include_str!("./redis-scripts/receiveMessage.lua"))
+            .query_async(conn)
+            .await?;
+        Ok(Self {
+            change_message_visibility_sha1,
+            receive_message_sha1,
+        })
+    }
+
+    async fn invoke_change_message_visibility<R, T: ConnectionLike>(
+        &self,
+        conn: &mut T,
+        key1: String,
+        key2: String,
+        key3: String,
+    ) -> RsmqResult<R>
+    where
+        R: redis::FromRedisValue,
+    {
+        redis::cmd("EVALSHA")
+            .arg(&self.change_message_visibility_sha1)
+            .arg(3)
+            .arg(key1)
+            .arg(key2)
+            .arg(key3)
+            .query_async(conn)
+            .await
+            .map_err(Into::into)
+    }
+
+    async fn invoke_receive_message<R, T: ConnectionLike>(
+        &self,
+        conn: &mut T,
+        key1: String,
+        key2: String,
+        key3: String,
+        should_delete: String,
+    ) -> RsmqResult<R>
+    where
+        R: redis::FromRedisValue,
+    {
+        redis::cmd("EVALSHA")
+            .arg(&self.receive_message_sha1)
+            .arg(3)
+            .arg(key1)
+            .arg(key2)
+            .arg(key3)
+            .arg(should_delete)
+            .query_async(conn)
+            .await
+            .map_err(Into::into)
+    }
+}
+
 impl<T: ConnectionLike> RsmqFunctions<T> {
     /// Change the hidden time of a already sent message.
     pub async fn change_message_visibility(
@@ -48,6 +108,7 @@ impl<T: ConnectionLike> RsmqFunctions<T> {
         qname: &str,
         message_id: &str,
         hidden: Duration,
+        cached_script: &CachedScript,
     ) -> RsmqResult<()> {
         let hidden = get_redis_duration(Some(hidden), &Duration::from_secs(30));
 
@@ -55,14 +116,20 @@ impl<T: ConnectionLike> RsmqFunctions<T> {
 
         number_in_range(hidden, 0, JS_COMPAT_MAX_TIME_MILLIS)?;
 
-        CHANGE_MESSAGE_VISIVILITY
-            .key(format!("{}:{}", self.ns, qname))
-            .key(message_id)
-            .key(queue.ts + hidden)
-            .invoke_async::<_, bool>(conn)
+        cached_script
+            .invoke_change_message_visibility::<_, T>(
+                conn,
+                format!("{}:{}", self.ns, qname),
+                message_id.to_string(),
+                (queue.ts + hidden).to_string(),
+            )
             .await?;
 
         Ok(())
+    }
+
+    pub async fn load_scripts(&self, conn: &mut T) -> RsmqResult<CachedScript> {
+        CachedScript::init(conn).await
     }
 
     /// Creates a new queue. Attributes can be later modified with "set_queue_attributes" method
@@ -266,13 +333,18 @@ impl<T: ConnectionLike> RsmqFunctions<T> {
         &self,
         conn: &mut T,
         qname: &str,
+        cached_script: &CachedScript,
     ) -> RsmqResult<Option<RsmqMessage<E>>> {
         let queue = self.get_queue(conn, qname, false).await?;
 
-        let result: (bool, String, Vec<u8>, u64, u64) = POP_MESSAGE
-            .key(format!("{}:{}", self.ns, qname))
-            .key(queue.ts)
-            .invoke_async(conn)
+        let result: (bool, String, Vec<u8>, u64, u64) = cached_script
+            .invoke_receive_message(
+                conn,
+                format!("{}:{}", self.ns, qname),
+                queue.ts.to_string(),
+                queue.ts.to_string(),
+                "true".to_string(),
+            )
             .await?;
 
         if !result.0 {
@@ -298,17 +370,21 @@ impl<T: ConnectionLike> RsmqFunctions<T> {
         conn: &mut T,
         qname: &str,
         hidden: Option<Duration>,
+        cached_script: &CachedScript,
     ) -> RsmqResult<Option<RsmqMessage<E>>> {
         let queue = self.get_queue(conn, qname, false).await?;
 
         let hidden = get_redis_duration(hidden, &queue.vt);
         number_in_range(hidden, 0, JS_COMPAT_MAX_TIME_MILLIS)?;
 
-        let result: (bool, String, Vec<u8>, u64, u64) = RECEIVE_MESSAGE
-            .key(format!("{}:{}", self.ns, qname))
-            .key(queue.ts)
-            .key(queue.ts + hidden)
-            .invoke_async(conn)
+        let result: (bool, String, Vec<u8>, u64, u64) = cached_script
+            .invoke_receive_message(
+                conn,
+                format!("{}:{}", self.ns, qname),
+                queue.ts.to_string(),
+                (queue.ts + hidden).to_string(),
+                "false".to_string(),
+            )
             .await?;
 
         if !result.0 {
@@ -474,7 +550,7 @@ impl<T: ConnectionLike> RsmqFunctions<T> {
             .cmd("TIME")
             .query_async(conn)
             .await?;
-        
+
         #[cfg(feature = "break-js-comp")]
         let time = (result.1).0 * 1000000 + (result.1).1;
         #[cfg(not(feature = "break-js-comp"))]

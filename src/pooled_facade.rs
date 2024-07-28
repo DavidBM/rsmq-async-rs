@@ -1,4 +1,4 @@
-use crate::functions::RsmqFunctions;
+use crate::functions::{CachedScript, RsmqFunctions};
 use crate::r#trait::RsmqConnection;
 use crate::types::RedisBytes;
 use crate::types::{RsmqMessage, RsmqOptions, RsmqQueueAttributes};
@@ -50,6 +50,7 @@ pub struct PoolOptions {
 pub struct PooledRsmq {
     pool: bb8::Pool<RedisConnectionManager>,
     functions: RsmqFunctions<redis::aio::MultiplexedConnection>,
+    scripts: CachedScript,
 }
 
 impl Clone for PooledRsmq {
@@ -61,6 +62,7 @@ impl Clone for PooledRsmq {
                 realtime: self.functions.realtime,
                 conn: PhantomData,
             },
+            scripts: self.scripts.clone(),
         }
     }
 }
@@ -91,29 +93,51 @@ impl PooledRsmq {
 
         let pool = builder.build(manager).await?;
 
+        let mut conn = pool.get().await?;
+
+        let functions = RsmqFunctions::<redis::aio::MultiplexedConnection> {
+            ns: options.ns.clone(),
+            realtime: options.realtime,
+            conn: PhantomData,
+        };
+
+        let scripts = functions.load_scripts(&mut conn).await?;
+
+        drop(conn);
+
         Ok(PooledRsmq {
             pool,
-            functions: RsmqFunctions {
-                ns: options.ns.clone(),
-                realtime: options.realtime,
-                conn: PhantomData,
-            },
+            functions,
+            scripts,
         })
     }
 
-    pub fn new_with_pool(
+    pub async fn new_with_pool(
         pool: bb8::Pool<RedisConnectionManager>,
         realtime: bool,
         ns: Option<&str>,
-    ) -> PooledRsmq {
-        PooledRsmq {
+    ) -> RsmqResult<PooledRsmq> {
+        let mut conn = pool.get().await?;
+
+        let functions = RsmqFunctions::<redis::aio::MultiplexedConnection> {
+            ns: ns.unwrap_or("rsmq").to_string(),
+            realtime,
+            conn: PhantomData,
+        };
+
+        let scripts = functions.load_scripts(&mut conn).await?;
+
+        drop(conn);
+
+        Ok(PooledRsmq {
             pool,
             functions: RsmqFunctions {
                 ns: ns.unwrap_or("rsmq").to_string(),
                 realtime,
                 conn: PhantomData,
             },
-        }
+            scripts,
+        })
     }
 }
 
@@ -128,7 +152,7 @@ impl RsmqConnection for PooledRsmq {
         let mut conn = self.pool.get().await?;
 
         self.functions
-            .change_message_visibility(&mut conn, qname, message_id, hidden)
+            .change_message_visibility(&mut conn, qname, message_id, hidden, &self.scripts)
             .await
     }
 
@@ -174,7 +198,9 @@ impl RsmqConnection for PooledRsmq {
     ) -> RsmqResult<Option<RsmqMessage<E>>> {
         let mut conn = self.pool.get().await?;
 
-        self.functions.pop_message::<E>(&mut conn, qname).await
+        self.functions
+            .pop_message::<E>(&mut conn, qname, &self.scripts)
+            .await
     }
 
     async fn receive_message<E: TryFrom<RedisBytes, Error = Vec<u8>>>(
@@ -185,7 +211,7 @@ impl RsmqConnection for PooledRsmq {
         let mut conn = self.pool.get().await?;
 
         self.functions
-            .receive_message::<E>(&mut conn, qname, hidden)
+            .receive_message::<E>(&mut conn, qname, hidden, &self.scripts)
             .await
     }
 

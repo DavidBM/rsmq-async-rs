@@ -76,6 +76,7 @@ impl Drop for RedisServer {
 }
 
 pub struct TestContext {
+    #[allow(dead_code)]
     pub server: RedisServer,
     pub client: redis::Client,
 }

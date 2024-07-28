@@ -1,6 +1,4 @@
-use tokio::runtime::Runtime;
-
-use crate::functions::RsmqFunctions;
+use crate::functions::{CachedScript, RsmqFunctions};
 use crate::r#trait::RsmqConnection;
 use crate::types::{RedisBytes, RsmqMessage, RsmqOptions, RsmqQueueAttributes};
 use crate::{RsmqError, RsmqResult};
@@ -8,6 +6,7 @@ use core::convert::TryFrom;
 use core::marker::PhantomData;
 use std::sync::Arc;
 use std::time::Duration;
+use tokio::runtime::Runtime;
 
 #[derive(Clone)]
 struct RedisConnection(redis::aio::MultiplexedConnection);
@@ -23,6 +22,7 @@ pub struct RsmqSync {
     connection: RedisConnection,
     functions: RsmqFunctions<redis::aio::MultiplexedConnection>,
     runner: Arc<Runtime>,
+    scripts: CachedScript,
 }
 
 impl RsmqSync {
@@ -44,17 +44,23 @@ impl RsmqSync {
 
         let client = redis::Client::open(conn_info)?;
 
-        let connection =
-            runner.block_on(async move { client.get_multiplexed_async_connection().await })?;
+        let functions = RsmqFunctions {
+            ns: options.ns,
+            realtime: options.realtime,
+            conn: PhantomData,
+        };
+
+        let (connection, scripts) = runner.block_on(async {
+            let mut conn = client.get_multiplexed_async_connection().await?;
+            let scripts = functions.load_scripts(&mut conn).await?;
+            Result::<_, RsmqError>::Ok((conn, scripts))
+        })?;
 
         Ok(RsmqSync {
             connection: RedisConnection(connection),
-            functions: RsmqFunctions {
-                ns: options.ns,
-                realtime: options.realtime,
-                conn: PhantomData,
-            },
+            functions,
             runner: Arc::new(runner),
+            scripts,
         })
     }
 }
@@ -69,7 +75,13 @@ impl RsmqConnection for RsmqSync {
     ) -> RsmqResult<()> {
         self.runner.block_on(async {
             self.functions
-                .change_message_visibility(&mut self.connection.0, qname, message_id, hidden)
+                .change_message_visibility(
+                    &mut self.connection.0,
+                    qname,
+                    message_id,
+                    hidden,
+                    &self.scripts,
+                )
                 .await
         })
     }
@@ -121,7 +133,7 @@ impl RsmqConnection for RsmqSync {
     ) -> RsmqResult<Option<RsmqMessage<E>>> {
         self.runner.block_on(async {
             self.functions
-                .pop_message::<E>(&mut self.connection.0, qname)
+                .pop_message::<E>(&mut self.connection.0, qname, &self.scripts)
                 .await
         })
     }
@@ -133,7 +145,7 @@ impl RsmqConnection for RsmqSync {
     ) -> RsmqResult<Option<RsmqMessage<E>>> {
         self.runner.block_on(async {
             self.functions
-                .receive_message::<E>(&mut self.connection.0, qname, hidden)
+                .receive_message::<E>(&mut self.connection.0, qname, hidden, &self.scripts)
                 .await
         })
     }
