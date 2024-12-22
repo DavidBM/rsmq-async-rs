@@ -117,7 +117,7 @@ impl<T: ConnectionLike> RsmqFunctions<T> {
         number_in_range(hidden, 0, JS_COMPAT_MAX_TIME_MILLIS)?;
 
         cached_script
-            .invoke_change_message_visibility::<_, T>(
+            .invoke_change_message_visibility::<(), T>(
                 conn,
                 format!("{}:{}", self.ns, qname),
                 message_id.to_string(),
@@ -205,7 +205,7 @@ impl<T: ConnectionLike> RsmqFunctions<T> {
         redis::cmd("SADD")
             .arg(format!("{}:QUEUES", self.ns))
             .arg(qname)
-            .query_async::<_, ()>(conn)
+            .query_async::<()>(conn)
             .await?;
 
         Ok(())
@@ -463,7 +463,7 @@ impl<T: ConnectionLike> RsmqFunctions<T> {
             redis::cmd("PUBLISH")
                 .arg(format!("{}:rt:{}", self.ns, qname))
                 .arg(result[3])
-                .query_async::<_, ()>(conn)
+                .query_async::<()>(conn)
                 .await?;
         }
 
@@ -534,7 +534,7 @@ impl<T: ConnectionLike> RsmqFunctions<T> {
                 .arg(maxsize);
         }
 
-        commands.query_async::<_, ()>(conn).await?;
+        commands.query_async::<()>(conn).await?;
 
         self.get_queue_attributes(conn, qname).await
     }

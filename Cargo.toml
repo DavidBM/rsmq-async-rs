@@ -1,9 +1,7 @@
 [package]
 name = "rsmq_async"
-version = "12.0.0"
-authors = [
-    "David Bonet <webbonet@gmail.com>"
-]
+version = "13.0.0"
+authors = ["David Bonet <webbonet@gmail.com>"]
 edition = "2021"
 license = "MIT"
 description = "Async RSMQ port to rust. RSMQ is a simple redis queue system that works in any redis v2.4+. It contains the same methods as the original one in https://github.com/smrchy/rsmq"
@@ -18,13 +16,17 @@ rand = "^0.8"
 radix_fmt = "^1"
 bb8 = "^0.8"
 thiserror = "^1"
-redis = { version = "^0.25", default-features = false, features = ["acl", "keep-alive", "script"] }
+redis = { version = "^0.27", default-features = false, features = [
+    "acl",
+    "keep-alive",
+    "script",
+] }
 async-trait = "^0.1"
-tokio = { version = "^1", optional = true}
+tokio = { version = "^1", optional = true }
 
 [dev-dependencies]
 net2 = "^0.2"
-tokio = { version = "^1", features = ["rt-multi-thread"]}
+tokio = { version = "^1", features = ["rt-multi-thread"] }
 
 [features]
 default = ["tokio-comp", "sync"]

@@ -39,6 +39,7 @@ impl RsmqSync {
                 db: options.db.into(),
                 username: options.username,
                 password: options.password,
+                protocol: options.protocol,
             },
         };
 

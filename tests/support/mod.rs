@@ -91,6 +91,7 @@ impl TestContext {
                 db: 0,
                 username: None,
                 password: None,
+                ..Default::default()
             },
         })
         .unwrap();

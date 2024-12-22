@@ -1,3 +1,4 @@
+use redis::ProtocolVersion;
 use std::{convert::TryFrom, time::Duration};
 
 #[derive(Debug)]
@@ -27,6 +28,8 @@ pub struct RsmqOptions {
     pub password: Option<String>,
     /// RSMQ namespace (you can have several. "rsmq" by default)
     pub ns: String,
+    /// Redisa protocol. Defaults to RESP2
+    pub protocol: ProtocolVersion,
 }
 
 impl Default for RsmqOptions {
@@ -39,6 +42,7 @@ impl Default for RsmqOptions {
             username: None,
             password: None,
             ns: "rsmq".to_string(),
+            protocol: ProtocolVersion::RESP2,
         }
     }
 }
@@ -99,7 +103,7 @@ pub struct RsmqQueueAttributes {
 /// ```rust,ignore
 /// use std::convert::TryFrom;
 /// use rsmq_async::RedisBytes;
-///  
+///
 /// impl TryFrom<RedisBytes> for String {
 ///     type Error = Vec<u8>;
 ///
