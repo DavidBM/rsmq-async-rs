@@ -1,4 +1,4 @@
-use bb8_redis::bb8::RunError;
+use bb8::RunError;
 use redis::RedisError;
 use thiserror::Error as ThisError;
 
