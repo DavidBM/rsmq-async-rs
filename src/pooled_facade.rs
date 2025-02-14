@@ -3,7 +3,6 @@ use crate::r#trait::RsmqConnection;
 use crate::types::RedisBytes;
 use crate::types::{RsmqMessage, RsmqOptions, RsmqQueueAttributes};
 use crate::RsmqResult;
-use async_trait::async_trait;
 use core::convert::TryFrom;
 use redis::RedisError;
 use std::marker::PhantomData;
@@ -20,7 +19,6 @@ impl RedisConnectionManager {
     }
 }
 
-#[async_trait]
 impl bb8::ManageConnection for RedisConnectionManager {
     type Connection = redis::aio::MultiplexedConnection;
     type Error = RedisError;
@@ -142,7 +140,6 @@ impl PooledRsmq {
     }
 }
 
-#[async_trait::async_trait]
 impl RsmqConnection for PooledRsmq {
     async fn change_message_visibility(
         &mut self,
