@@ -586,7 +586,7 @@ impl<T: ConnectionLike> RsmqFunctions<T> {
     fn make_id(len: usize) -> RsmqResult<String> {
         let possible = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
 
-        let mut rng = rand::thread_rng();
+        let mut rng = rand::rng();
 
         let mut id = String::with_capacity(len);
 

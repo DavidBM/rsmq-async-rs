@@ -12,16 +12,15 @@ readme = "README.md"
 
 [dependencies]
 lazy_static = "^1"
-rand = "^0.8"
+rand = "^0.9"
 radix_fmt = "^1"
-bb8 = "^0.8"
-thiserror = "^1"
-redis = { version = "^0.27", default-features = false, features = [
+bb8 = "^0.9"
+thiserror = "^2"
+redis = { version = "^0.28", default-features = false, features = [
     "acl",
     "keep-alive",
     "script",
 ] }
-async-trait = "^0.1"
 tokio = { version = "^1", optional = true }
 
 [dev-dependencies]
