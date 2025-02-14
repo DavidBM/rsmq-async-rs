@@ -71,14 +71,14 @@
 //! the Redis SUBSCRIBE command to be notified of new messages and issue a `receiveMessage` then. However make sure not
 //! to listen with multiple workers for new messages with SUBSCRIBE to prevent multiple simultaneous `receiveMessage`
 //! calls.
-//! 
+//!
 //! ## Time Precision
-//! 
-//! By default this library keeps compatibility with the JS counterpart. If you require 
+//!
+//! By default this library keeps compatibility with the JS counterpart. If you require
 //! sub-second precision or are sending many messages very close together and require to
 //! keep track of them with more precision than one second, you can enable the feature
 //! `break-js-comp` like this on your `Cargo.toml`
-//! 
+//!
 //! ```toml
 //! rsmq_async = { version = "11", features = [ "break-js-comp" ] }
 //! ```
@@ -167,7 +167,7 @@ mod types;
 pub use error::RsmqError;
 pub use error::RsmqResult;
 pub use multiplexed_facade::Rsmq;
-pub use pooled_facade::{PoolOptions, PooledRsmq, RedisConnectionManager};
+pub use pooled_facade::{PoolOptions, PooledRsmq};
 pub use r#trait::RsmqConnection;
 #[cfg(feature = "sync")]
 pub use sync_facade::RsmqSync;

@@ -14,7 +14,7 @@ readme = "README.md"
 lazy_static = "^1"
 rand = "^0.9"
 radix_fmt = "^1"
-bb8 = "^0.9"
+bb8-redis = "^0.20"
 thiserror = "^2"
 redis = { version = "^0.28", default-features = false, features = [
     "acl",
