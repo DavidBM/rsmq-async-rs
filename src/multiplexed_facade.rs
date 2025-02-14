@@ -64,7 +64,6 @@ impl Rsmq {
     }
 }
 
-#[async_trait::async_trait]
 impl RsmqConnection for Rsmq {
     async fn change_message_visibility(
         &mut self,

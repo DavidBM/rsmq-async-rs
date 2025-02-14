@@ -113,7 +113,7 @@ impl TestContext {
                 }
             }
         }
-        redis::cmd("FLUSHDB").execute(&mut con);
+        let _ = redis::cmd("FLUSHDB").exec(&mut con);
 
         TestContext { server, client }
     }
