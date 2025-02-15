@@ -8,6 +8,21 @@
 //! [![dependency status](https://deps.rs/crate/rsmq_async/4.0.0/status.svg)](https://deps.rs/crate/rsmq_async)
 //! [![Docs](https://img.shields.io/badge/docs-latest-blue.svg?style=flat-square)](https://docs.rs/rsmq_async)
 //!
+//! ## Traits
+//!
+//! This library provides two core traits for interacting with Redis message queues:
+//!
+//! - [`RsmqConnection`]: The async trait that defines all queue operations. Must be imported with `use rsmq_async::RsmqConnection;`
+//! - [`RsmqConnectionSync`]: The synchronous version of the trait, available with the "sync" feature. Must be imported with `use rsmq_async::RsmqConnectionSync;`
+//!
+//! ## Implementations
+//!
+//! Three main implementations are provided:
+//!
+//! - [`Rsmq`]: The preferred implementation using a multiplexed Redis connection
+//! - [`PooledRsmq`]: Uses a connection pool for large messages
+//! - [`RsmqSync`]: A synchronous wrapper (requires "sync" feature)
+//!
 //! ## Example
 //!
 //! ```rust
@@ -23,10 +38,6 @@
 //! # }
 //!
 //! ```
-//!
-//! Main object documentation are in: [`Rsmq`] and[`PooledRsmq`] and they both implement the trait
-//! [`RsmqConnection`] where you can see all the RSMQ methods. Make sure you always import the trait
-//! [`RsmqConnection`].
 //!
 //! ## Installation
 //!
@@ -169,6 +180,8 @@ pub use error::RsmqResult;
 pub use multiplexed_facade::Rsmq;
 pub use pooled_facade::{PoolOptions, PooledRsmq, RedisConnectionManager};
 pub use r#trait::RsmqConnection;
+#[cfg(feature = "sync")]
+pub use r#trait::RsmqConnectionSync;
 #[cfg(feature = "sync")]
 pub use sync_facade::RsmqSync;
 pub use types::RedisBytes;
