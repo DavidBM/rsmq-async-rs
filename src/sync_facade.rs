@@ -94,7 +94,7 @@ impl RsmqConnectionSync for RsmqSync {
         qname: &str,
         hidden: Option<Duration>,
         delay: Option<Duration>,
-        maxsize: Option<i32>,
+        maxsize: Option<i64>,
     ) -> RsmqResult<()> {
         self.runner.block_on(async {
             self.functions
@@ -120,7 +120,7 @@ impl RsmqConnectionSync for RsmqSync {
     fn get_queue_attributes(&mut self, qname: &str) -> RsmqResult<RsmqQueueAttributes> {
         self.runner.block_on(async {
             self.functions
-                .get_queue_attributes(&mut self.connection.0, qname)
+                .get_queue_attributes(&mut self.connection.0, qname, &self.scripts)
                 .await
         })
     }
@@ -175,7 +175,7 @@ impl RsmqConnectionSync for RsmqSync {
     ) -> RsmqResult<RsmqQueueAttributes> {
         self.runner.block_on(async {
             self.functions
-                .set_queue_attributes(&mut self.connection.0, qname, hidden, delay, maxsize)
+                .set_queue_attributes(&mut self.connection.0, qname, hidden, delay, maxsize, &self.scripts)
                 .await
         })
     }

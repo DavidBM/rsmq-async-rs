@@ -90,7 +90,7 @@ impl RsmqConnection for Rsmq {
         qname: &str,
         hidden: Option<Duration>,
         delay: Option<Duration>,
-        maxsize: Option<i32>,
+        maxsize: Option<i64>,
     ) -> RsmqResult<()> {
         self.functions
             .create_queue(&mut self.connection.0, qname, hidden, delay, maxsize)
@@ -109,7 +109,7 @@ impl RsmqConnection for Rsmq {
     }
     async fn get_queue_attributes(&mut self, qname: &str) -> RsmqResult<RsmqQueueAttributes> {
         self.functions
-            .get_queue_attributes(&mut self.connection.0, qname)
+            .get_queue_attributes(&mut self.connection.0, qname, &self.scripts)
             .await
     }
 
@@ -155,7 +155,7 @@ impl RsmqConnection for Rsmq {
         maxsize: Option<i64>,
     ) -> RsmqResult<RsmqQueueAttributes> {
         self.functions
-            .set_queue_attributes(&mut self.connection.0, qname, hidden, delay, maxsize)
+            .set_queue_attributes(&mut self.connection.0, qname, hidden, delay, maxsize, &self.scripts)
             .await
     }
 }

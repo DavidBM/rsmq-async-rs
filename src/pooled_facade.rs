@@ -39,7 +39,7 @@ impl bb8::ManageConnection for RedisConnectionManager {
     }
 }
 
-#[derive(Default)]
+#[derive(Debug, Clone, Default)]
 pub struct PoolOptions {
     pub max_size: Option<u32>,
     pub min_idle: Option<u32>,
@@ -133,11 +133,7 @@ impl PooledRsmq {
 
         Ok(PooledRsmq {
             pool,
-            functions: RsmqFunctions {
-                ns: ns.unwrap_or("rsmq").to_string(),
-                realtime,
-                conn: PhantomData,
-            },
+            functions,
             scripts,
         })
     }
@@ -162,7 +158,7 @@ impl RsmqConnection for PooledRsmq {
         qname: &str,
         hidden: Option<Duration>,
         delay: Option<Duration>,
-        maxsize: Option<i32>,
+        maxsize: Option<i64>,
     ) -> RsmqResult<()> {
         let mut conn = self.pool.get().await?;
 
@@ -184,7 +180,7 @@ impl RsmqConnection for PooledRsmq {
     async fn get_queue_attributes(&mut self, qname: &str) -> RsmqResult<RsmqQueueAttributes> {
         let mut conn = self.pool.get().await?;
 
-        self.functions.get_queue_attributes(&mut conn, qname).await
+        self.functions.get_queue_attributes(&mut conn, qname, &self.scripts).await
     }
 
     async fn list_queues(&mut self) -> RsmqResult<Vec<String>> {
@@ -239,7 +235,7 @@ impl RsmqConnection for PooledRsmq {
         let mut conn = self.pool.get().await?;
 
         self.functions
-            .set_queue_attributes(&mut conn, qname, hidden, delay, maxsize)
+            .set_queue_attributes(&mut conn, qname, hidden, delay, maxsize, &self.scripts)
             .await
     }
 }

@@ -30,7 +30,7 @@ pub trait RsmqConnection {
         qname: &str,
         hidden: Option<Duration>,
         delay: Option<Duration>,
-        maxsize: Option<i32>,
+        maxsize: Option<i64>,
     ) -> impl Future<Output = RsmqResult<()>> + Send;
 
     /// Deletes a message from the queue.
@@ -125,7 +125,7 @@ pub trait RsmqConnectionSync {
         qname: &str,
         hidden: Option<Duration>,
         delay: Option<Duration>,
-        maxsize: Option<i32>,
+        maxsize: Option<i64>,
     ) -> RsmqResult<()>;
 
     /// Deletes a message from the queue.

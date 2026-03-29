@@ -13,7 +13,7 @@ pub enum RsmqError {
     RunError(#[from] RunError<RedisError>),
     #[error("Redis error: `{0:?}`")]
     RedisError(#[from] RedisError),
-    #[error("No connection acquired`")]
+    #[error("No connection acquired")]
     NoConnectionAcquired,
     #[error("No attribute was supplied")]
     NoAttributeSupplied,
@@ -21,7 +21,7 @@ pub enum RsmqError {
     MissingParameter(String),
     #[error("Invalid `{0:?} format`")]
     InvalidFormat(String),
-    #[error("{0:?} must be between {0:?} and {0:?}")]
+    #[error("{0:?} must be between {1:?} and {2:?}")]
     InvalidValue(String, String, String),
     #[error("Message not string")]
     MessageNotString,
@@ -31,8 +31,8 @@ pub enum RsmqError {
     QueueNotFound,
     #[error("Queue already exists")]
     QueueExists,
-    #[error("Error when trying to create random value. This is a bug and realted with the rust random generator")]
-    BugCreatingRandonValue,
+    #[error("Error when trying to create random value. This is a bug related to the rust random generator")]
+    BugCreatingRandomValue,
     #[error("Cannot parse queue vt")]
     CannotParseVT,
     #[error("Cannot parse queue delay")]

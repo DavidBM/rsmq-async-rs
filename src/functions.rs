@@ -35,6 +35,7 @@ impl<T: ConnectionLike> std::fmt::Debug for RsmqFunctions<T> {
 pub struct CachedScript {
     change_message_visibility_sha1: String,
     receive_message_sha1: String,
+    get_queue_attributes_sha1: String,
 }
 
 impl CachedScript {
@@ -49,9 +50,15 @@ impl CachedScript {
             .arg(include_str!("./redis-scripts/receiveMessage.lua"))
             .query_async(conn)
             .await?;
+        let get_queue_attributes_sha1: String = redis::cmd("SCRIPT")
+            .arg("LOAD")
+            .arg(include_str!("./redis-scripts/getQueueAttributes.lua"))
+            .query_async(conn)
+            .await?;
         Ok(Self {
             change_message_visibility_sha1,
             receive_message_sha1,
+            get_queue_attributes_sha1,
         })
     }
 
@@ -94,6 +101,27 @@ impl CachedScript {
             .arg(key2)
             .arg(key3)
             .arg(should_delete)
+            .query_async(conn)
+            .await
+            .map_err(Into::into)
+    }
+
+    async fn invoke_get_queue_attributes<R, T: ConnectionLike>(
+        &self,
+        conn: &mut T,
+        key_hash: String,
+        key_set: String,
+        time_multiplier: u64,
+    ) -> RsmqResult<R>
+    where
+        R: redis::FromRedisValue,
+    {
+        redis::cmd("EVALSHA")
+            .arg(&self.get_queue_attributes_sha1)
+            .arg(2)
+            .arg(key_hash)
+            .arg(key_set)
+            .arg(time_multiplier)
             .query_async(conn)
             .await
             .map_err(Into::into)
@@ -145,7 +173,7 @@ impl<T: ConnectionLike> RsmqFunctions<T> {
         qname: &str,
         hidden: Option<Duration>,
         delay: Option<Duration>,
-        maxsize: Option<i32>,
+        maxsize: Option<i64>,
     ) -> RsmqResult<()> {
         valid_name_format(qname)?;
 
@@ -165,7 +193,7 @@ impl<T: ConnectionLike> RsmqFunctions<T> {
 
         let time: (u64, u64) = redis::cmd("TIME").query_async(conn).await?;
 
-        let results: Vec<bool> = pipe()
+        let results: Vec<i64> = pipe()
             .atomic()
             .cmd("HSETNX")
             .arg(&key)
@@ -195,18 +223,15 @@ impl<T: ConnectionLike> RsmqFunctions<T> {
             .arg(&key)
             .arg("totalsent")
             .arg(0_i32)
+            .cmd("SADD")
+            .arg(format!("{}:QUEUES", self.ns))
+            .arg(qname)
             .query_async(conn)
             .await?;
 
-        if !results[0] {
+        if results[0] == 0 {
             return Err(RsmqError::QueueExists);
         }
-
-        redis::cmd("SADD")
-            .arg(format!("{}:QUEUES", self.ns))
-            .arg(qname)
-            .query_async::<()>(conn)
-            .await?;
 
         Ok(())
     }
@@ -264,57 +289,45 @@ impl<T: ConnectionLike> RsmqFunctions<T> {
         &self,
         conn: &mut T,
         qname: &str,
+        cached_script: &CachedScript,
     ) -> RsmqResult<RsmqQueueAttributes> {
         let key = format!("{}:{}", self.ns, qname);
 
-        let time: (u64, u64) = redis::cmd("TIME").query_async(conn).await?;
-
-        let result: (Vec<Option<i64>>, u64, u64) = pipe()
-            .atomic()
-            .cmd("HMGET")
-            .arg(format!("{}:Q", key))
-            .arg("vt")
-            .arg("delay")
-            .arg("maxsize")
-            .arg("totalrecv")
-            .arg("totalsent")
-            .arg("created")
-            .arg("modified")
-            .cmd("ZCARD")
-            .arg(&key)
-            .cmd("ZCOUNT")
-            .arg(&key)
-            .arg(time.0 * TIME_MULTIPLIER)
-            .arg("+inf")
-            .query_async(conn)
+        #[allow(clippy::type_complexity)]
+        let result: (
+            u64, u64,
+            Option<i64>, Option<i64>, Option<i64>,
+            Option<i64>, Option<i64>, Option<i64>, Option<i64>,
+            u64, u64,
+        ) = cached_script
+            .invoke_get_queue_attributes(
+                conn,
+                format!("{}:Q", key),
+                key,
+                TIME_MULTIPLIER,
+            )
             .await?;
 
-        let is_empty = result.0.contains(&None);
+        let (_time_sec, _time_usec, vt, delay, maxsize, totalrecv, totalsent, created, modified, msgs, hiddenmsgs) = result;
 
-        if is_empty {
+        if vt.is_none() {
             return Err(RsmqError::QueueNotFound);
         }
 
         Ok(RsmqQueueAttributes {
-            vt: result
-                .0
-                .first()
-                .and_then(Option::as_ref)
-                .map(|dur| Duration::from_millis((*dur).try_into().unwrap_or(0)))
+            vt: vt
+                .map(|dur| Duration::from_millis(dur.try_into().unwrap_or(0)))
                 .unwrap_or(Duration::ZERO),
-            delay: result
-                .0
-                .get(1)
-                .and_then(Option::as_ref)
-                .map(|dur| Duration::from_millis((*dur).try_into().unwrap_or(0)))
+            delay: delay
+                .map(|dur| Duration::from_millis(dur.try_into().unwrap_or(0)))
                 .unwrap_or(Duration::ZERO),
-            maxsize: result.0.get(2).unwrap_or(&Some(0)).unwrap_or(0),
-            totalrecv: u64::try_from(result.0.get(3).unwrap_or(&Some(0)).unwrap_or(0)).unwrap_or(0),
-            totalsent: u64::try_from(result.0.get(4).unwrap_or(&Some(0)).unwrap_or(0)).unwrap_or(0),
-            created: u64::try_from(result.0.get(5).unwrap_or(&Some(0)).unwrap_or(0)).unwrap_or(0),
-            modified: u64::try_from(result.0.get(6).unwrap_or(&Some(0)).unwrap_or(0)).unwrap_or(0),
-            msgs: result.1,
-            hiddenmsgs: result.2,
+            maxsize: maxsize.unwrap_or(0),
+            totalrecv: totalrecv.and_then(|v| v.try_into().ok()).unwrap_or(0),
+            totalsent: totalsent.and_then(|v| v.try_into().ok()).unwrap_or(0),
+            created: created.and_then(|v| v.try_into().ok()).unwrap_or(0),
+            modified: modified.and_then(|v| v.try_into().ok()).unwrap_or(0),
+            msgs,
+            hiddenmsgs,
         })
     }
 
@@ -358,7 +371,7 @@ impl<T: ConnectionLike> RsmqFunctions<T> {
             message,
             rc: result.3,
             fr: result.4,
-            sent: u64::from_str_radix(&result.1[0..10], 36).unwrap_or(0),
+            sent: result.1.get(0..10).and_then(|s| u64::from_str_radix(s, 36).ok()).unwrap_or(0),
         }))
     }
 
@@ -398,7 +411,7 @@ impl<T: ConnectionLike> RsmqFunctions<T> {
             message,
             rc: result.3,
             fr: result.4,
-            sent: u64::from_str_radix(&result.1[0..10], 36).unwrap_or(0),
+            sent: result.1.get(0..10).and_then(|s| u64::from_str_radix(s, 36).ok()).unwrap_or(0),
         }))
     }
 
@@ -484,6 +497,7 @@ impl<T: ConnectionLike> RsmqFunctions<T> {
         hidden: Option<Duration>,
         delay: Option<Duration>,
         maxsize: Option<i64>,
+        cached_script: &CachedScript,
     ) -> RsmqResult<RsmqQueueAttributes> {
         self.get_queue(conn, qname, false).await?;
 
@@ -491,33 +505,23 @@ impl<T: ConnectionLike> RsmqFunctions<T> {
 
         let time: (u64, u64) = redis::cmd("TIME").query_async(conn).await?;
 
-        let mut commands = &mut pipe();
-
-        commands = commands
-            .atomic()
+        let mut pipe = pipe();
+        pipe.atomic()
             .cmd("HSET")
             .arg(&queue_name)
             .arg("modified")
             .arg(time.0);
 
-        if hidden.is_some() {
-            let duration = get_redis_duration(hidden, &Duration::from_secs(30));
+        if let Some(hidden) = hidden {
+            let duration = get_redis_duration(Some(hidden), &Duration::from_secs(30));
             number_in_range(duration, 0, JS_COMPAT_MAX_TIME_MILLIS)?;
-            commands = commands
-                .cmd("HSET")
-                .arg(&queue_name)
-                .arg("vt")
-                .arg(duration);
+            pipe.cmd("HSET").arg(&queue_name).arg("vt").arg(duration);
         }
 
-        if delay.is_some() {
-            let delay = get_redis_duration(delay, &Duration::ZERO);
+        if let Some(delay) = delay {
+            let delay = get_redis_duration(Some(delay), &Duration::ZERO);
             number_in_range(delay, 0, JS_COMPAT_MAX_TIME_MILLIS)?;
-            commands = commands
-                .cmd("HSET")
-                .arg(&queue_name)
-                .arg("delay")
-                .arg(delay);
+            pipe.cmd("HSET").arg(&queue_name).arg("delay").arg(delay);
         }
 
         if let Some(maxsize) = maxsize {
@@ -527,16 +531,12 @@ impl<T: ConnectionLike> RsmqFunctions<T> {
                     return Err(error);
                 }
             }
-            commands = commands
-                .cmd("HSET")
-                .arg(&queue_name)
-                .arg("maxsize")
-                .arg(maxsize);
+            pipe.cmd("HSET").arg(&queue_name).arg("maxsize").arg(maxsize);
         }
 
-        commands.query_async::<()>(conn).await?;
+        pipe.query_async::<()>(conn).await?;
 
-        self.get_queue_attributes(conn, qname).await
+        self.get_queue_attributes(conn, qname, cached_script).await
     }
 
     async fn get_queue(&self, conn: &mut T, qname: &str, uid: bool) -> RsmqResult<QueueDescriptor> {
@@ -584,21 +584,16 @@ impl<T: ConnectionLike> RsmqFunctions<T> {
     }
 
     fn make_id(len: usize) -> RsmqResult<String> {
-        let possible = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
-
+        const POSSIBLE: &[u8] =
+            b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
         let mut rng = rand::rng();
-
         let mut id = String::with_capacity(len);
-
         for _ in 0..len {
-            id.push(
-                possible
-                    .chars()
-                    .choose(&mut rng)
-                    .ok_or(RsmqError::BugCreatingRandonValue)?,
-            );
+            let idx = (0..POSSIBLE.len())
+                .choose(&mut rng)
+                .ok_or(RsmqError::BugCreatingRandomValue)?;
+            id.push(POSSIBLE[idx] as char);
         }
-
         Ok(id)
     }
 }
@@ -620,13 +615,15 @@ fn number_in_range<T: std::cmp::PartialOrd + std::fmt::Display>(
 }
 
 fn valid_name_format(name: &str) -> RsmqResult<()> {
-    if name.is_empty() && name.len() > 160 {
+    if name.is_empty() || name.len() > 160 {
         return Err(RsmqError::InvalidFormat(name.to_string()));
-    } else {
-        name.chars()
-            .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_');
     }
-
+    if !name
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
+    {
+        return Err(RsmqError::InvalidFormat(name.to_string()));
+    }
     Ok(())
 }
 

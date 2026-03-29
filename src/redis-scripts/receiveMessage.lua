@@ -6,7 +6,7 @@
 -- ARGV[1]: A string "true" or "false" indicating whether to delete the message after processing.
 
 -- Find the next message due to be visible based on the current time (KEYS[2])
-local message = redis.call("ZRANGEBYSCORE", KEYS[1], "-inf", KEYS[2], "LIMIT", "0", "1")
+local message = redis.call("ZRANGE", KEYS[1], "-inf", KEYS[2], "BYSCORE", "LIMIT", 0, 1)
 
 -- If no message is found, return a default empty response
 if #message == 0 then
@@ -16,11 +16,16 @@ end
 -- Check if the message should be deleted
 local should_delete = ARGV[1] == "true"
 
--- Increment the total received count for the queue
-redis.call("HINCRBY", KEYS[1] .. ":Q", "totalrecv", 1)
-
 -- Get the message body from the hash
 local messageBody = redis.call("HGET", KEYS[1] .. ":Q", message[1])
+
+-- If the message body is missing (data inconsistency), return empty without side effects
+if not messageBody then
+    return { false, "", "", 0, 0 }
+end
+
+-- Increment the total received count for the queue
+redis.call("HINCRBY", KEYS[1] .. ":Q", "totalrecv", 1)
 
 -- Increment the receive count for this message
 local receiveCount = redis.call("HINCRBY", KEYS[1] .. ":Q", message[1] .. ":rc", 1)
