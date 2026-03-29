@@ -25,15 +25,18 @@ pub struct Rsmq {
 impl Rsmq {
     /// Creates a new RSMQ instance, including its connection
     pub async fn new(options: RsmqOptions) -> RsmqResult<Rsmq> {
-        let conn_info = redis::ConnectionInfo {
-            addr: redis::ConnectionAddr::Tcp(options.host, options.port),
-            redis: redis::RedisConnectionInfo {
-                db: options.db.into(),
-                username: options.username,
-                password: options.password,
-                protocol: options.protocol,
-            },
-        };
+        let mut redis_info = redis::RedisConnectionInfo::default()
+            .set_db(options.db.into())
+            .set_protocol(options.protocol);
+        if let Some(username) = options.username {
+            redis_info = redis_info.set_username(username);
+        }
+        if let Some(password) = options.password {
+            redis_info = redis_info.set_password(password);
+        }
+        let conn_info = format!("redis://{}:{}", options.host, options.port)
+            .parse::<redis::ConnectionInfo>()?
+            .set_redis_settings(redis_info);
 
         let client = redis::Client::open(conn_info)?;
 

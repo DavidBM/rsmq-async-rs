@@ -152,4 +152,26 @@ impl TryFrom<RedisBytes> for String {
 ```
 
 
+## Development
+
+### Running the tests
+
+The tests require a running Redis instance. Start one with Docker:
+
+```sh
+docker run -d --name redis-test -p 6379:6379 redis:latest
+```
+
+Then run the tests sequentially (required because tests share the same Redis DB):
+
+```sh
+cargo test -- --test-threads=1
+```
+
+To use a different Redis host/port, set `REDIS_URL`:
+
+```sh
+REDIS_URL=127.0.0.1:6380 cargo test -- --test-threads=1
+```
+
 <!-- cargo-sync-readme end -->

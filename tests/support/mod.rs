@@ -4,35 +4,40 @@ use std::thread::sleep;
 use std::time::Duration;
 
 pub struct RedisServer {
-    pub process: process::Child,
+    pub process: Option<process::Child>,
     addr: redis::ConnectionAddr,
 }
 
 impl RedisServer {
     pub fn new() -> RedisServer {
-        let addr = {
-            // this is technically a race but we can't do better with
-            // the tools that redis gives us :(
-            let listener = net2::TcpBuilder::new_v4()
-                .unwrap()
-                .reuse_address(true)
-                .unwrap()
-                .bind("127.0.0.1:0")
-                .unwrap()
-                .listen(1)
-                .unwrap();
-            let server_port = listener.local_addr().unwrap().port();
-            redis::ConnectionAddr::Tcp("127.0.0.1".to_string(), server_port)
-        };
-        RedisServer::new_with_addr(addr, |cmd| {
-            cmd.spawn().expect("Error executing redis-server")
-        })
+        if which_redis_server() {
+            let addr = {
+                let listener = net2::TcpBuilder::new_v4()
+                    .unwrap()
+                    .reuse_address(true)
+                    .unwrap()
+                    .bind("127.0.0.1:0")
+                    .unwrap()
+                    .listen(1)
+                    .unwrap();
+                let server_port = listener.local_addr().unwrap().port();
+                redis::ConnectionAddr::Tcp("127.0.0.1".to_string(), server_port)
+            };
+            RedisServer::spawn(addr)
+        } else {
+            let url = std::env::var("REDIS_URL").unwrap_or_else(|_| "127.0.0.1:6379".to_string());
+            let (host, port) = url
+                .rsplit_once(':')
+                .map(|(h, p)| (h.to_string(), p.parse().expect("invalid REDIS_URL port")))
+                .unwrap_or_else(|| (url, 6379));
+            RedisServer {
+                process: None,
+                addr: redis::ConnectionAddr::Tcp(host, port),
+            }
+        }
     }
 
-    pub fn new_with_addr<F: FnOnce(&mut process::Command) -> process::Child>(
-        addr: redis::ConnectionAddr,
-        spawner: F,
-    ) -> RedisServer {
+    fn spawn(addr: redis::ConnectionAddr) -> RedisServer {
         let mut cmd = process::Command::new("redis-server");
         cmd.stdout(process::Stdio::null())
             .stderr(process::Stdio::null());
@@ -47,11 +52,11 @@ impl RedisServer {
             redis::ConnectionAddr::Unix(ref path) => {
                 cmd.arg("--port").arg("0").arg("--unixsocket").arg(path);
             }
-            _ => panic!("Not TLS support for the tests"),
+            _ => panic!("No TLS support for the tests"),
         };
 
         RedisServer {
-            process: spawner(&mut cmd),
+            process: Some(cmd.spawn().expect("Error executing redis-server")),
             addr,
         }
     }
@@ -61,8 +66,10 @@ impl RedisServer {
     }
 
     pub fn stop(&mut self) {
-        let _ = self.process.kill();
-        let _ = self.process.wait();
+        if let Some(ref mut child) = self.process {
+            let _ = child.kill();
+            let _ = child.wait();
+        }
         if let redis::ConnectionAddr::Unix(ref path) = *self.get_client_addr() {
             fs::remove_file(path).ok();
         }
@@ -75,6 +82,15 @@ impl Drop for RedisServer {
     }
 }
 
+fn which_redis_server() -> bool {
+    std::process::Command::new("redis-server")
+        .arg("--version")
+        .stdout(process::Stdio::null())
+        .stderr(process::Stdio::null())
+        .status()
+        .is_ok()
+}
+
 pub struct TestContext {
     #[allow(dead_code)]
     pub server: RedisServer,
@@ -85,16 +101,11 @@ impl TestContext {
     pub fn new() -> TestContext {
         let server = RedisServer::new();
 
-        let client = redis::Client::open(redis::ConnectionInfo {
-            addr: server.get_client_addr().clone(),
-            redis: redis::RedisConnectionInfo {
-                db: 0,
-                username: None,
-                password: None,
-                ..Default::default()
-            },
-        })
-        .unwrap();
+        let conn_info = "redis://localhost"
+            .parse::<redis::ConnectionInfo>()
+            .unwrap()
+            .set_addr(server.get_client_addr().clone());
+        let client = redis::Client::open(conn_info).unwrap();
         let mut con;
 
         let millisecond = Duration::from_millis(1);

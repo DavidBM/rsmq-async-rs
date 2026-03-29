@@ -108,16 +108,16 @@
 //!
 //! ## Executor compatibility
 //!
-//! By default it will intruct redis-rs library to enable async-std and tokio compatibility and choose Tokio
-//! if Tokio is avaialble, async-std if not. If you want to choose, you can change the `Cargo.toml` definition to
+//! By default this library enables Tokio compatibility. If you want to use the smol runtime instead,
+//! you can change the `Cargo.toml` definition to
 //!
 //! ```toml
 //!
-//! rsmq_async = { version = "9", default-features = false, features = ["tokio-comp"] }
+//! rsmq_async = { version = "15", default-features = false, features = ["smol-comp"] }
 //!
 //! ```
 //!
-//! Where `"tokio-comp"` can also be `"async-std-comp"`.
+//! Where `"smol-comp"` can also be `"tokio-comp"`.
 //!
 //! ## `Rsmq` vs `PooledRsmq`
 //!
