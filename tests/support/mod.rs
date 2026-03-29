@@ -1,3 +1,4 @@
+use rand::RngExt as _;
 use std::fs;
 use std::process;
 use std::thread::sleep;
@@ -95,6 +96,7 @@ pub struct TestContext {
     #[allow(dead_code)]
     pub server: RedisServer,
     pub client: redis::Client,
+    pub ns: String,
 }
 
 impl TestContext {
@@ -106,7 +108,6 @@ impl TestContext {
             .unwrap()
             .set_addr(server.get_client_addr().clone());
         let client = redis::Client::open(conn_info).unwrap();
-        let mut con;
 
         let millisecond = Duration::from_millis(1);
         loop {
@@ -118,15 +119,13 @@ impl TestContext {
                         panic!("Could not connect: {}", err);
                     }
                 }
-                Ok(x) => {
-                    con = x;
-                    break;
-                }
+                Ok(_) => break,
             }
         }
-        let _ = redis::cmd("FLUSHDB").exec(&mut con);
+        let ns: u64 = rand::rng().random();
+        let ns = format!("rsmqtest{:016x}", ns);
 
-        TestContext { server, client }
+        TestContext { server, client, ns }
     }
 
     pub async fn async_connection(&self) -> redis::RedisResult<redis::aio::MultiplexedConnection> {

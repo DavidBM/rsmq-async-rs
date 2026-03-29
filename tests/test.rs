@@ -13,7 +13,7 @@ fn rt() -> tokio::runtime::Runtime {
 }
 
 async fn new_rsmq(ctx: &TestContext) -> Rsmq {
-    Rsmq::new_with_connection(ctx.async_connection().await.unwrap(), false, None)
+    Rsmq::new_with_connection(ctx.async_connection().await.unwrap(), false, Some(&ctx.ns))
         .await
         .unwrap()
 }
@@ -25,7 +25,7 @@ fn send_receiving_deleting_message() {
     rt.block_on(async move {
         let ctx = TestContext::new();
         let connection = ctx.async_connection().await.unwrap();
-        let mut rsmq = Rsmq::new_with_connection(connection, false, None)
+        let mut rsmq = Rsmq::new_with_connection(connection, false, Some(&ctx.ns))
             .await
             .unwrap();
 
@@ -64,7 +64,7 @@ fn send_receiving_delayed_message() {
     rt.block_on(async move {
         let ctx = TestContext::new();
         let connection = ctx.async_connection().await.unwrap();
-        let mut rsmq = Rsmq::new_with_connection(connection, false, None)
+        let mut rsmq = Rsmq::new_with_connection(connection, false, Some(&ctx.ns))
             .await
             .unwrap();
 
@@ -125,7 +125,7 @@ fn send_receiving_deleting_message_vec_u8() {
     rt.block_on(async move {
         let ctx = TestContext::new();
         let connection = ctx.async_connection().await.unwrap();
-        let mut rsmq = Rsmq::new_with_connection(connection, false, None)
+        let mut rsmq = Rsmq::new_with_connection(connection, false, Some(&ctx.ns))
             .await
             .unwrap();
 
@@ -175,7 +175,7 @@ fn send_receiving_deleting_message_custom_type() {
     rt.block_on(async move {
         let ctx = TestContext::new();
         let connection = ctx.async_connection().await.unwrap();
-        let mut rsmq = Rsmq::new_with_connection(connection, false, None)
+        let mut rsmq = Rsmq::new_with_connection(connection, false, Some(&ctx.ns))
             .await
             .unwrap();
 
@@ -214,7 +214,7 @@ fn pop_message() {
     rt.block_on(async move {
         let ctx = TestContext::new();
         let connection = ctx.async_connection().await.unwrap();
-        let mut rsmq = Rsmq::new_with_connection(connection, false, None)
+        let mut rsmq = Rsmq::new_with_connection(connection, false, Some(&ctx.ns))
             .await
             .unwrap();
 
@@ -247,7 +247,7 @@ fn pop_message_vec_u8() {
     rt.block_on(async move {
         let ctx = TestContext::new();
         let connection = ctx.async_connection().await.unwrap();
-        let mut rsmq = Rsmq::new_with_connection(connection, false, None)
+        let mut rsmq = Rsmq::new_with_connection(connection, false, Some(&ctx.ns))
             .await
             .unwrap();
 
@@ -280,7 +280,7 @@ fn creating_queue() {
     rt.block_on(async move {
         let ctx = TestContext::new();
         let connection = ctx.async_connection().await.unwrap();
-        let mut rsmq = Rsmq::new_with_connection(connection, false, None)
+        let mut rsmq = Rsmq::new_with_connection(connection, false, Some(&ctx.ns))
             .await
             .unwrap();
 
@@ -309,7 +309,7 @@ fn updating_queue() {
     rt.block_on(async move {
         let ctx = TestContext::new();
         let connection = ctx.async_connection().await.unwrap();
-        let mut rsmq = Rsmq::new_with_connection(connection, false, None)
+        let mut rsmq = Rsmq::new_with_connection(connection, false, Some(&ctx.ns))
             .await
             .unwrap();
 
@@ -359,7 +359,7 @@ fn deleting_queue() {
     rt.block_on(async move {
         let ctx = TestContext::new();
         let connection = ctx.async_connection().await.unwrap();
-        let mut rsmq = Rsmq::new_with_connection(connection, false, None)
+        let mut rsmq = Rsmq::new_with_connection(connection, false, Some(&ctx.ns))
             .await
             .unwrap();
 
@@ -418,7 +418,7 @@ fn change_message_visibility() {
     rt.block_on(async move {
         let ctx = TestContext::new();
         let connection = ctx.async_connection().await.unwrap();
-        let mut rsmq = Rsmq::new_with_connection(connection, false, None)
+        let mut rsmq = Rsmq::new_with_connection(connection, false, Some(&ctx.ns))
             .await
             .unwrap();
 
@@ -468,7 +468,7 @@ fn change_queue_size() {
     rt.block_on(async move {
         let ctx = TestContext::new();
         let connection = ctx.async_connection().await.unwrap();
-        let mut rsmq = Rsmq::new_with_connection(connection, false, None)
+        let mut rsmq = Rsmq::new_with_connection(connection, false, Some(&ctx.ns))
             .await
             .unwrap();
 
@@ -492,7 +492,7 @@ fn sent_messages_must_keep_order() {
     rt.block_on(async move {
         let ctx = TestContext::new();
         let connection = ctx.async_connection().await.unwrap();
-        let mut rsmq = Rsmq::new_with_connection(connection, false, None)
+        let mut rsmq = Rsmq::new_with_connection(connection, false, Some(&ctx.ns))
             .await
             .unwrap();
 
@@ -889,7 +889,7 @@ fn receive_skips_phantom_message_without_body() {
         // Inject a phantom message ID directly into the sorted set (no hash entry).
         // Score 0 is always in the past, so it is immediately visible.
         redis::cmd("ZADD")
-            .arg("rsmq:q1")
+            .arg(format!("{}:q1", ctx.ns))
             .arg(0u64)
             .arg("phantom-id")
             .query_async::<()>(&mut raw)
