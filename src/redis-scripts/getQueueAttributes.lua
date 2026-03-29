@@ -2,10 +2,17 @@
 -- eliminating the race between the TIME call and the ZCOUNT threshold.
 -- KEYS[1]: ns:qname:Q (the queue hash key)
 -- KEYS[2]: ns:qname (the sorted set key)
--- ARGV[1]: time multiplier for the hidden-messages ZCOUNT threshold
+-- ARGV[1]: 0 = JS-compat mode (millisecond scores), 1 = break-js-comp (microsecond scores)
 
 local time = redis.call("TIME")
-local threshold = tonumber(time[1]) * tonumber(ARGV[1])
+-- JS-compat: threshold in ms (second-level precision, matching JS rsmq's sec+"000" trick)
+-- break-js-comp: threshold in us for full precision
+local threshold
+if tonumber(ARGV[1]) == 1 then
+    threshold = tonumber(time[1]) * 1000000 + tonumber(time[2])
+else
+    threshold = tonumber(time[1]) * 1000
+end
 
 local attrs = redis.call("HMGET", KEYS[1], "vt", "delay", "maxsize", "totalrecv", "totalsent", "created", "modified")
 local msgs = redis.call("ZCARD", KEYS[2])

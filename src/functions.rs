@@ -12,10 +12,17 @@ use std::time::Duration;
 
 const JS_COMPAT_MAX_TIME_MILLIS: u64 = 9_999_999_000;
 
+// With break-js-comp, scores are in microseconds; scale ms durations before adding to ts.
 #[cfg(feature = "break-js-comp")]
-const TIME_MULTIPLIER: u64 = 1000;
+const DURATION_SCALE: u64 = 1000;
 #[cfg(not(feature = "break-js-comp"))]
-const TIME_MULTIPLIER: u64 = 1;
+const DURATION_SCALE: u64 = 1;
+
+// Flag passed to getQueueAttributes Lua: 1 = microsecond scores, 0 = millisecond scores.
+#[cfg(feature = "break-js-comp")]
+const USE_MICROSECONDS: u64 = 1;
+#[cfg(not(feature = "break-js-comp"))]
+const USE_MICROSECONDS: u64 = 0;
 
 /// The main object of this library. Creates/Handles the redis connection and contains all the methods
 #[derive(Clone)]
@@ -149,7 +156,7 @@ impl<T: ConnectionLike> RsmqFunctions<T> {
                 conn,
                 format!("{}:{}", self.ns, qname),
                 message_id.to_string(),
-                (queue.ts + hidden).to_string(),
+                (queue.ts + hidden * DURATION_SCALE).to_string(),
             )
             .await?;
 
@@ -304,7 +311,7 @@ impl<T: ConnectionLike> RsmqFunctions<T> {
                 conn,
                 format!("{}:Q", key),
                 key,
-                TIME_MULTIPLIER,
+                USE_MICROSECONDS,
             )
             .await?;
 
@@ -395,7 +402,7 @@ impl<T: ConnectionLike> RsmqFunctions<T> {
                 conn,
                 format!("{}:{}", self.ns, qname),
                 queue.ts.to_string(),
-                (queue.ts + hidden).to_string(),
+                (queue.ts + hidden * DURATION_SCALE).to_string(),
                 "false".to_string(),
             )
             .await?;
@@ -455,7 +462,7 @@ impl<T: ConnectionLike> RsmqFunctions<T> {
             .atomic()
             .cmd("ZADD")
             .arg(&key)
-            .arg(queue.ts + delay)
+            .arg(queue.ts + delay * DURATION_SCALE)
             .arg(&queue_uid)
             .cmd("HSET")
             .arg(&queue_key)
@@ -551,10 +558,15 @@ impl<T: ConnectionLike> RsmqFunctions<T> {
             .query_async(conn)
             .await?;
 
+        let sec = (result.1).0;
+        let usec = (result.1).1;
+        // Message IDs always encode microseconds (matching JS rsmq).
+        let time_us = sec * 1_000_000 + usec;
+        // ts is the score unit: microseconds with break-js-comp, milliseconds otherwise.
         #[cfg(feature = "break-js-comp")]
-        let time = (result.1).0 * 1000000 + (result.1).1;
+        let ts = time_us;
         #[cfg(not(feature = "break-js-comp"))]
-        let time = (result.1).0 * 1000;
+        let ts = sec * 1000 + usec / 1000;
 
         let (hmget_first, hmget_second, hmget_third) =
             match (result.0.first(), result.0.get(1), result.0.get(2)) {
@@ -563,7 +575,7 @@ impl<T: ConnectionLike> RsmqFunctions<T> {
             };
 
         let quid = if uid {
-            Some(radix_36(time).to_string() + &RsmqFunctions::<T>::make_id(22)?)
+            Some(radix_36(time_us).to_string() + &RsmqFunctions::<T>::make_id(22)?)
         } else {
             None
         };
@@ -578,7 +590,7 @@ impl<T: ConnectionLike> RsmqFunctions<T> {
             maxsize: hmget_third
                 .parse()
                 .map_err(|_| RsmqError::CannotParseMaxsize)?,
-            ts: time / TIME_MULTIPLIER,
+            ts,
             uid: quid,
         })
     }
