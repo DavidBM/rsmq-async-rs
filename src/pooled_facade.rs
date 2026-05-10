@@ -114,6 +114,14 @@ impl PooledRsmq {
         })
     }
 
+    /// Atomically moves a message from `src` to `dst`. See [`crate::Rsmq::move_message`].
+    pub async fn move_message(&mut self, src: &str, msg_id: &str, dst: &str) -> RsmqResult<bool> {
+        let mut conn = self.pool.get().await?;
+        self.functions
+            .move_message(&mut conn, src, msg_id, dst, &self.scripts)
+            .await
+    }
+
     pub async fn new_with_pool(
         pool: bb8::Pool<RedisConnectionManager>,
         realtime: bool,
@@ -224,6 +232,32 @@ impl RsmqConnection for PooledRsmq {
 
         self.functions
             .send_message(&mut conn, qname, message, delay)
+            .await
+    }
+
+    async fn send_message_batch<E: Into<RedisBytes> + Send>(
+        &mut self,
+        qname: &str,
+        messages: Vec<E>,
+        delay: Option<Duration>,
+    ) -> RsmqResult<Vec<String>> {
+        let mut conn = self.pool.get().await?;
+
+        self.functions
+            .send_message_batch(&mut conn, qname, messages, delay, &self.scripts)
+            .await
+    }
+
+    async fn receive_message_batch<E: TryFrom<RedisBytes, Error = Vec<u8>>>(
+        &mut self,
+        qname: &str,
+        hidden: Option<Duration>,
+        max_count: u32,
+    ) -> RsmqResult<Vec<RsmqMessage<E>>> {
+        let mut conn = self.pool.get().await?;
+
+        self.functions
+            .receive_message_batch::<E>(&mut conn, qname, hidden, max_count, &self.scripts)
             .await
     }
 

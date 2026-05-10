@@ -1,5 +1,42 @@
 # Changelog
 
+## 17.3.0 - 2026-05-10
+
+### Added
+- Atomic `move_message(src, msg_id, dst)` primitive on [`Rsmq`], [`PooledRsmq`], and [`RsmqSync`]. Implemented as a single Lua script (`moveMessage.lua`) that preserves the message body and the `:rc` / `:fr` metadata, sets the destination score to the current time (so the message is visible immediately in the DLQ), and bumps the destination's `totalsent` counter. Returns `false` if the message no longer exists in the source. Rejects self-loops (`src == dst`).
+- Worker DLQ integration:
+  - `WorkerBuilder::dlq(queue, max_failures)` — global default DLQ for all routes.
+  - `WorkerBuilder::dlq_for(route, queue, max_failures)` — per-route override.
+  - `max_failures = 0` ⇒ DLQ on first failure; `max_failures = N` ⇒ DLQ on the (N+1)-th failure (compares against the message's `rc`).
+  - Self-loop validation at build time (`InvalidFormat` if a route's DLQ is itself).
+  - Worker uses `Rsmq::move_message` so the DLQ transfer is atomic, never producing duplicate or lost messages.
+  - The DLQ must already exist (`create_queue` it before building the worker); this is documented but not validated at build time.
+- Tests `tests/move_message.rs` (4) and 5 new worker DLQ tests in `tests/worker.rs`.
+
+### Note on the trait surface
+- `move_message` is **not** added to the `RsmqConnection` trait in this release — only as inherent methods on the concrete facades. Promoting it to the trait requires either a default impl (no clean atomic option) or a major bump. Deferred to a future release.
+
+## 17.2.0 - 2026-05-10
+
+### Added
+- New `worker` Cargo feature (**default**, tokio-only) with [`Worker`] and [`WorkerBuilder`]:
+  - Builder + `run` / `run_until(shutdown_future)` API. Queue-name router (`.route("emails", handler).route("billing", handler)`).
+  - Each handler is a `Fn(RsmqMessage<T>) -> impl Future<Output = Result<(), E>>` where `T: TryFrom<RedisBytes>` and `E: std::error::Error`. Decode and handler errors are surfaced and the message is left in the queue for redelivery.
+  - Automatic visibility heartbeat: while a handler runs, the worker periodically calls `change_message_visibility` so slow handlers don't get redelivered. Configurable interval and extension amount.
+  - Optional `use_realtime` mode that subscribes to `{ns}:rt:*` PUBLISHes for low-latency wake-up instead of strict polling.
+  - Single-task by design — for parallelism, run multiple `Worker` instances.
+- New example `examples/worker_helper.rs`.
+- New integration tests `tests/worker.rs` covering successful processing, handler errors leaving messages for redelivery, queue-name routing, empty-routes rejection, and the heartbeat keeping a slow handler safe.
+- New direct dependency on `futures-util` (optional, gated on `worker`) for the pubsub stream.
+
+## 17.1.0 - 2026-05-10
+
+### Added
+- `RsmqConnection::send_message_batch` and `RsmqConnection::receive_message_batch` (and their `RsmqConnectionSync` counterparts), with default impls that loop the singular methods. Implementations on `Rsmq`, `PooledRsmq`, and `RsmqSync` override them with new Lua scripts (`sendMessageBatch.lua`, `receiveMessageBatch.lua`) for full atomicity:
+  - Batch send: all messages land or none do; one realtime `PUBLISH` per call (with the post-batch queue size) instead of one per message.
+  - Batch receive: up to `max_count` messages picked in one `ZRANGE BYSCORE` and updated in a single script. Phantom entries (sorted-set members with no body) are skipped silently, mirroring the singular receive logic.
+- New integration tests in `tests/batch.rs` covering ID minting, empty inputs, max-size enforcement, partial fills, and end-to-end receive+delete.
+
 ## 17.0.0 - 2026-05-10
 
 ### Breaking

@@ -1,6 +1,6 @@
 [package]
 name = "rsmq_async"
-version = "17.0.0"
+version = "17.3.0"
 authors = ["David Bonet <webbonet@gmail.com>"]
 edition = "2021"
 license = "MIT"
@@ -23,6 +23,9 @@ redis = { version = "^1", default-features = false, features = [
 tokio = { version = "^1", optional = true }
 serde = { version = "^1", optional = true }
 serde_json = { version = "^1", optional = true }
+futures-util = { version = "^0.3", optional = true, default-features = false, features = [
+    "std",
+] }
 
 [dev-dependencies]
 net2 = "^0.2"
@@ -31,13 +34,25 @@ serde = { version = "^1", features = ["derive"] }
 serde_json = "^1"
 
 [features]
-default = ["tokio-comp", "sync", "serde"]
-sync = ["tokio"]
+default = ["tokio-comp", "sync", "serde", "worker"]
+sync = ["dep:tokio"]
 tokio-comp = ["redis/tokio-comp"]
 smol-comp = ["redis/smol-comp"]
 break-js-comp = []
 serde = ["dep:serde", "dep:serde_json"]
+# Async worker helper. Tokio-only for now (uses tokio::time and tokio::select!).
+worker = [
+    "tokio-comp",
+    "dep:tokio",
+    "tokio/time",
+    "tokio/macros",
+    "dep:futures-util",
+]
 
 [[example]]
 name = "serde_message"
 required-features = ["serde"]
+
+[[example]]
+name = "worker_helper"
+required-features = ["worker"]

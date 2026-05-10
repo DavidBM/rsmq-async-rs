@@ -73,6 +73,8 @@
 //! - `sync` *(default)* — enables [`RsmqSync`] and [`RsmqConnectionSync`].
 //! - `serde` *(default)* — enables [`Json<T>`](Json), [`RsmqJsonExt`], and the
 //!   `RsmqError::JsonError` variant. Pulls in `serde` and `serde_json`.
+//! - `worker` *(default)* — enables [`Worker`], a polling/heartbeat/realtime-aware async
+//!   worker helper with a queue-name router. Tokio-only.
 //! - `break-js-comp` — full microsecond-precision scores. Off by default to stay wire-compatible
 //!   with the JS library; **don't mix** a `break-js-comp` Rust producer with a JS server on the
 //!   same queue.
@@ -90,6 +92,8 @@ mod pooled_facade;
 mod sync_facade;
 mod r#trait;
 mod types;
+#[cfg(feature = "worker")]
+mod worker;
 
 pub use error::RsmqError;
 pub use error::RsmqResult;
@@ -108,3 +112,5 @@ pub use types::RedisBytes;
 pub use types::RsmqMessage;
 pub use types::RsmqOptions;
 pub use types::RsmqQueueAttributes;
+#[cfg(feature = "worker")]
+pub use worker::{DecodeError, Worker, WorkerBuilder};

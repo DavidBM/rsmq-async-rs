@@ -43,6 +43,9 @@ pub struct CachedScript {
     change_message_visibility_sha1: String,
     receive_message_sha1: String,
     get_queue_attributes_sha1: String,
+    send_message_batch_sha1: String,
+    receive_message_batch_sha1: String,
+    move_message_sha1: String,
 }
 
 impl CachedScript {
@@ -62,10 +65,28 @@ impl CachedScript {
             .arg(include_str!("./redis-scripts/getQueueAttributes.lua"))
             .query_async(conn)
             .await?;
+        let send_message_batch_sha1: String = redis::cmd("SCRIPT")
+            .arg("LOAD")
+            .arg(include_str!("./redis-scripts/sendMessageBatch.lua"))
+            .query_async(conn)
+            .await?;
+        let receive_message_batch_sha1: String = redis::cmd("SCRIPT")
+            .arg("LOAD")
+            .arg(include_str!("./redis-scripts/receiveMessageBatch.lua"))
+            .query_async(conn)
+            .await?;
+        let move_message_sha1: String = redis::cmd("SCRIPT")
+            .arg("LOAD")
+            .arg(include_str!("./redis-scripts/moveMessage.lua"))
+            .query_async(conn)
+            .await?;
         Ok(Self {
             change_message_visibility_sha1,
             receive_message_sha1,
             get_queue_attributes_sha1,
+            send_message_batch_sha1,
+            receive_message_batch_sha1,
+            move_message_sha1,
         })
     }
 
@@ -129,6 +150,69 @@ impl CachedScript {
             .arg(key_hash)
             .arg(key_set)
             .arg(time_multiplier)
+            .query_async(conn)
+            .await
+            .map_err(Into::into)
+    }
+
+    async fn invoke_send_message_batch<T: ConnectionLike>(
+        &self,
+        conn: &mut T,
+        queue_key: String,
+        realtime: bool,
+        items: Vec<(String, u64, Vec<u8>)>,
+    ) -> RsmqResult<i64> {
+        let mut cmd = redis::cmd("EVALSHA");
+        cmd.arg(&self.send_message_batch_sha1)
+            .arg(1)
+            .arg(queue_key)
+            .arg(if realtime { "1" } else { "0" });
+        for (id, score, body) in items {
+            cmd.arg(id).arg(score.to_string()).arg(body);
+        }
+        cmd.query_async(conn).await.map_err(Into::into)
+    }
+
+    async fn invoke_receive_message_batch<R, T: ConnectionLike>(
+        &self,
+        conn: &mut T,
+        queue_key: String,
+        now_ts: String,
+        new_visibility_ts: String,
+        should_delete: String,
+        max_count: u32,
+    ) -> RsmqResult<R>
+    where
+        R: redis::FromRedisValue,
+    {
+        redis::cmd("EVALSHA")
+            .arg(&self.receive_message_batch_sha1)
+            .arg(3)
+            .arg(queue_key)
+            .arg(now_ts)
+            .arg(new_visibility_ts)
+            .arg(should_delete)
+            .arg(max_count)
+            .query_async(conn)
+            .await
+            .map_err(Into::into)
+    }
+
+    async fn invoke_move_message<T: ConnectionLike>(
+        &self,
+        conn: &mut T,
+        src_key: String,
+        dst_key: String,
+        msg_id: String,
+        microseconds: bool,
+    ) -> RsmqResult<i64> {
+        redis::cmd("EVALSHA")
+            .arg(&self.move_message_sha1)
+            .arg(2)
+            .arg(src_key)
+            .arg(dst_key)
+            .arg(msg_id)
+            .arg(if microseconds { "1" } else { "0" })
             .query_async(conn)
             .await
             .map_err(Into::into)
@@ -510,6 +594,154 @@ impl<T: ConnectionLike> RsmqFunctions<T> {
         }
 
         Ok(queue_uid)
+    }
+
+    /// Atomically inserts a batch of messages into the queue. Returns the assigned message IDs
+    /// in input order. If realtime is enabled, fires a single PUBLISH with the new queue size
+    /// after the script completes.
+    pub async fn send_message_batch<E: Into<RedisBytes>>(
+        &self,
+        conn: &mut T,
+        qname: &str,
+        messages: Vec<E>,
+        delay: Option<Duration>,
+        cached_script: &CachedScript,
+    ) -> RsmqResult<Vec<String>> {
+        if messages.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let queue = self.get_queue(conn, qname, false).await?;
+
+        let delay = get_redis_duration(delay, &queue.delay);
+        number_in_range(delay, 0, JS_COMPAT_MAX_TIME_MILLIS)?;
+
+        let key = format!("{}:{}", self.ns, qname);
+        let score = queue.ts + delay * DURATION_SCALE;
+
+        // Convert messages, validate sizes, and mint per-message IDs. We mint IDs in Rust
+        // (rather than Lua) so the random-suffix logic stays consistent with single send_message.
+        let (sec, usec): (u64, u64) = redis::cmd("TIME").query_async(conn).await?;
+        let time_us = sec * 1_000_000 + usec;
+        let id_prefix = radix_36(time_us).to_string();
+
+        let mut items: Vec<(String, u64, Vec<u8>)> = Vec::with_capacity(messages.len());
+        let mut ids: Vec<String> = Vec::with_capacity(messages.len());
+        for message in messages {
+            let bytes: RedisBytes = message.into();
+            let msg_len: i64 = bytes
+                .0
+                .len()
+                .try_into()
+                .map_err(|_| RsmqError::MessageTooLong)?;
+            if queue.maxsize != -1 && msg_len > queue.maxsize {
+                return Err(RsmqError::MessageTooLong);
+            }
+            let uid = format!("{}{}", id_prefix, RsmqFunctions::<T>::make_id(22)?);
+            ids.push(uid.clone());
+            items.push((uid, score, bytes.0));
+        }
+
+        let new_size = cached_script
+            .invoke_send_message_batch(conn, key, self.realtime, items)
+            .await?;
+
+        if self.realtime {
+            redis::cmd("PUBLISH")
+                .arg(format!("{}:rt:{}", self.ns, qname))
+                .arg(new_size)
+                .query_async::<()>(conn)
+                .await?;
+        }
+
+        Ok(ids)
+    }
+
+    /// Atomically receives up to `max_count` visible messages, sharing the same new
+    /// visibility timestamp. Phantom entries (sorted-set members with no body) are skipped
+    /// silently, mirroring the single-message receive logic. Returns at most `max_count`
+    /// messages but may return fewer if not enough are visible.
+    pub async fn receive_message_batch<E: TryFrom<RedisBytes, Error = Vec<u8>>>(
+        &self,
+        conn: &mut T,
+        qname: &str,
+        hidden: Option<Duration>,
+        max_count: u32,
+        cached_script: &CachedScript,
+    ) -> RsmqResult<Vec<RsmqMessage<E>>> {
+        if max_count == 0 {
+            return Ok(Vec::new());
+        }
+
+        let queue = self.get_queue(conn, qname, false).await?;
+
+        let hidden = get_redis_duration(hidden, &queue.vt);
+        number_in_range(hidden, 0, JS_COMPAT_MAX_TIME_MILLIS)?;
+
+        let raw: Vec<(String, Vec<u8>, u64, u64)> = cached_script
+            .invoke_receive_message_batch(
+                conn,
+                format!("{}:{}", self.ns, qname),
+                queue.ts.to_string(),
+                (queue.ts + hidden * DURATION_SCALE).to_string(),
+                "false".to_string(),
+                max_count,
+            )
+            .await?;
+
+        let mut out = Vec::with_capacity(raw.len());
+        for (id, body, rc, fr) in raw {
+            let message = E::try_from(RedisBytes(body)).map_err(RsmqError::CannotDecodeMessage)?;
+            let sent = id
+                .get(0..10)
+                .and_then(|s| u64::from_str_radix(s, 36).ok())
+                .unwrap_or(0);
+            out.push(RsmqMessage {
+                id,
+                message,
+                rc,
+                fr,
+                sent,
+            });
+        }
+        Ok(out)
+    }
+
+    /// Atomically moves a message from `src` to `dst`, preserving its body and the
+    /// `:rc` / `:fr` metadata. The message becomes visible in `dst` immediately
+    /// (score = current time). Returns `true` if the message was found in `src`,
+    /// `false` if it didn't exist there.
+    ///
+    /// `dst` must be a queue that already exists (created via `create_queue`); this
+    /// method does not initialize the destination queue's configuration, only inserts
+    /// the message and bumps `totalsent`.
+    pub async fn move_message(
+        &self,
+        conn: &mut T,
+        src: &str,
+        msg_id: &str,
+        dst: &str,
+        cached_script: &CachedScript,
+    ) -> RsmqResult<bool> {
+        valid_name_format(src)?;
+        valid_name_format(dst)?;
+        if src == dst {
+            return Err(RsmqError::InvalidFormat(format!(
+                "src and dst must be different (got {src:?})"
+            )));
+        }
+        let src_key = format!("{}:{}", self.ns, src);
+        let dst_key = format!("{}:{}", self.ns, dst);
+        let moved: i64 = cached_script
+            .invoke_move_message(
+                conn,
+                src_key,
+                dst_key,
+                msg_id.to_string(),
+                USE_MICROSECONDS == 1,
+            )
+            .await?;
+        Ok(moved == 1)
     }
 
     /// Modify the queue attributes. Keep in mind that "hidden" and "delay" can be overwritten when the message is sent. "hidden" can be changed by the method "change_message_visibility"

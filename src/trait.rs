@@ -80,6 +80,63 @@ pub trait RsmqConnection {
         delay: Option<Duration>,
     ) -> impl Future<Output = RsmqResult<String>> + Send;
 
+    /// Sends a batch of messages to the queue. Returns the assigned message IDs in input order.
+    ///
+    /// The default impl loops `send_message`, which means a mid-batch error leaves whatever
+    /// succeeded before that point in the queue. Implementations like [`crate::Rsmq`] and
+    /// [`crate::PooledRsmq`] override this with a single Lua script for full atomicity (either
+    /// all messages land or none do) and at most one realtime PUBLISH per call.
+    fn send_message_batch<E: Into<RedisBytes> + Send>(
+        &mut self,
+        qname: &str,
+        messages: Vec<E>,
+        delay: Option<Duration>,
+    ) -> impl Future<Output = RsmqResult<Vec<String>>> + Send
+    where
+        Self: Send,
+    {
+        async move {
+            if messages.is_empty() {
+                return Ok(Vec::new());
+            }
+            let mut ids = Vec::with_capacity(messages.len());
+            for m in messages {
+                ids.push(self.send_message(qname, m, delay).await?);
+            }
+            Ok(ids)
+        }
+    }
+
+    /// Receives up to `max_count` messages, sharing the same hidden duration. Returns at most
+    /// `max_count` messages but may return fewer (or zero) if not enough are visible.
+    ///
+    /// The default impl loops `receive_message`. Implementations like [`crate::Rsmq`] and
+    /// [`crate::PooledRsmq`] override this with a single Lua script that picks all messages
+    /// in one ZRANGE BYSCORE pass.
+    fn receive_message_batch<E: TryFrom<RedisBytes, Error = Vec<u8>> + Send>(
+        &mut self,
+        qname: &str,
+        hidden: Option<Duration>,
+        max_count: u32,
+    ) -> impl Future<Output = RsmqResult<Vec<RsmqMessage<E>>>> + Send
+    where
+        Self: Send,
+    {
+        async move {
+            if max_count == 0 {
+                return Ok(Vec::new());
+            }
+            let mut out = Vec::with_capacity(max_count as usize);
+            for _ in 0..max_count {
+                match self.receive_message(qname, hidden).await? {
+                    Some(m) => out.push(m),
+                    None => break,
+                }
+            }
+            Ok(out)
+        }
+    }
+
     /// Modify the queue attributes. Keep in mind that "hidden" and "delay" can be overwritten when the message
     /// is sent. "hidden" can be changed by the method "change_message_visibility"
     ///
@@ -188,6 +245,46 @@ pub trait RsmqConnectionSync {
         message: E,
         delay: Option<Duration>,
     ) -> RsmqResult<String>;
+
+    /// Sends a batch of messages. Returns assigned IDs in input order. The default impl loops
+    /// `send_message`; specialized implementations atomically insert via a single Lua script.
+    fn send_message_batch<E: Into<RedisBytes> + Send>(
+        &mut self,
+        qname: &str,
+        messages: Vec<E>,
+        delay: Option<Duration>,
+    ) -> RsmqResult<Vec<String>> {
+        if messages.is_empty() {
+            return Ok(Vec::new());
+        }
+        let mut ids = Vec::with_capacity(messages.len());
+        for m in messages {
+            ids.push(self.send_message(qname, m, delay)?);
+        }
+        Ok(ids)
+    }
+
+    /// Receives up to `max_count` messages. Returns at most `max_count` but may return fewer.
+    /// The default impl loops `receive_message`; specialized implementations use a single
+    /// Lua script.
+    fn receive_message_batch<E: TryFrom<RedisBytes, Error = Vec<u8>>>(
+        &mut self,
+        qname: &str,
+        hidden: Option<Duration>,
+        max_count: u32,
+    ) -> RsmqResult<Vec<RsmqMessage<E>>> {
+        if max_count == 0 {
+            return Ok(Vec::new());
+        }
+        let mut out = Vec::with_capacity(max_count as usize);
+        for _ in 0..max_count {
+            match self.receive_message(qname, hidden)? {
+                Some(m) => out.push(m),
+                None => break,
+            }
+        }
+        Ok(out)
+    }
 
     /// Modify the queue attributes. Note that "hidden" and "delay" can be overwritten when sending messages.
     /// "hidden" can be changed by the method "change_message_visibility"

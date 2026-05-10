@@ -65,6 +65,17 @@ impl Rsmq {
             scripts,
         })
     }
+
+    /// Atomically moves a message from `src` to `dst`. See [`crate::functions::RsmqFunctions::move_message`]
+    /// for the full contract. Returns `true` if the message was found in `src` and moved.
+    ///
+    /// This is a primitive useful for dead-letter routing and consumer-side message redirection.
+    /// The destination queue must already exist (call `create_queue` first).
+    pub async fn move_message(&mut self, src: &str, msg_id: &str, dst: &str) -> RsmqResult<bool> {
+        self.functions
+            .move_message(&mut self.connection.0, src, msg_id, dst, &self.scripts)
+            .await
+    }
 }
 
 impl RsmqConnection for Rsmq {
@@ -144,6 +155,40 @@ impl RsmqConnection for Rsmq {
     ) -> RsmqResult<String> {
         self.functions
             .send_message(&mut self.connection.0, qname, message, delay)
+            .await
+    }
+
+    async fn send_message_batch<E: Into<RedisBytes> + Send>(
+        &mut self,
+        qname: &str,
+        messages: Vec<E>,
+        delay: Option<Duration>,
+    ) -> RsmqResult<Vec<String>> {
+        self.functions
+            .send_message_batch(
+                &mut self.connection.0,
+                qname,
+                messages,
+                delay,
+                &self.scripts,
+            )
+            .await
+    }
+
+    async fn receive_message_batch<E: TryFrom<RedisBytes, Error = Vec<u8>>>(
+        &mut self,
+        qname: &str,
+        hidden: Option<Duration>,
+        max_count: u32,
+    ) -> RsmqResult<Vec<RsmqMessage<E>>> {
+        self.functions
+            .receive_message_batch::<E>(
+                &mut self.connection.0,
+                qname,
+                hidden,
+                max_count,
+                &self.scripts,
+            )
             .await
     }
 

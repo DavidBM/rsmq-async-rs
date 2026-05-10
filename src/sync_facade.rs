@@ -67,6 +67,15 @@ impl RsmqSync {
             scripts,
         })
     }
+
+    /// Atomically moves a message from `src` to `dst`. See [`crate::Rsmq::move_message`].
+    pub fn move_message(&mut self, src: &str, msg_id: &str, dst: &str) -> RsmqResult<bool> {
+        self.runner.block_on(async {
+            self.functions
+                .move_message(&mut self.connection.0, src, msg_id, dst, &self.scripts)
+                .await
+        })
+    }
 }
 
 impl RsmqConnectionSync for RsmqSync {
@@ -162,6 +171,44 @@ impl RsmqConnectionSync for RsmqSync {
         self.runner.block_on(async {
             self.functions
                 .send_message(&mut self.connection.0, qname, message, delay)
+                .await
+        })
+    }
+
+    fn send_message_batch<E: Into<RedisBytes> + Send>(
+        &mut self,
+        qname: &str,
+        messages: Vec<E>,
+        delay: Option<Duration>,
+    ) -> RsmqResult<Vec<String>> {
+        self.runner.block_on(async {
+            self.functions
+                .send_message_batch(
+                    &mut self.connection.0,
+                    qname,
+                    messages,
+                    delay,
+                    &self.scripts,
+                )
+                .await
+        })
+    }
+
+    fn receive_message_batch<E: TryFrom<RedisBytes, Error = Vec<u8>>>(
+        &mut self,
+        qname: &str,
+        hidden: Option<Duration>,
+        max_count: u32,
+    ) -> RsmqResult<Vec<RsmqMessage<E>>> {
+        self.runner.block_on(async {
+            self.functions
+                .receive_message_batch::<E>(
+                    &mut self.connection.0,
+                    qname,
+                    hidden,
+                    max_count,
+                    &self.scripts,
+                )
                 .await
         })
     }
