@@ -65,39 +65,6 @@ impl Rsmq {
             scripts,
         })
     }
-
-    /// Atomically moves a message from `src` to `dst`. See [`crate::functions::RsmqFunctions::move_message`]
-    /// for the full contract. Returns `true` if the message was found in `src` and moved.
-    ///
-    /// This is a primitive useful for dead-letter routing and consumer-side message redirection.
-    /// The destination queue must already exist (call `create_queue` first).
-    pub async fn move_message(&mut self, src: &str, msg_id: &str, dst: &str) -> RsmqResult<bool> {
-        self.functions
-            .move_message(&mut self.connection.0, src, msg_id, dst, &self.scripts)
-            .await
-    }
-
-    /// Receives the next visible message but transparently routes any message whose
-    /// post-increment `rc` exceeds `max_receives` to `dlq`. See
-    /// [`crate::functions::RsmqFunctions::receive_message_or_dlq`] for the full contract.
-    pub async fn receive_message_or_dlq<E: TryFrom<RedisBytes, Error = Vec<u8>>>(
-        &mut self,
-        qname: &str,
-        hidden: Option<Duration>,
-        dlq: &str,
-        max_receives: u64,
-    ) -> RsmqResult<Option<RsmqMessage<E>>> {
-        self.functions
-            .receive_message_or_dlq::<E>(
-                &mut self.connection.0,
-                qname,
-                hidden,
-                dlq,
-                max_receives,
-                &self.scripts,
-            )
-            .await
-    }
 }
 
 impl RsmqConnection for Rsmq {
@@ -228,6 +195,31 @@ impl RsmqConnection for Rsmq {
                 hidden,
                 delay,
                 maxsize,
+                &self.scripts,
+            )
+            .await
+    }
+
+    async fn move_message(&mut self, src: &str, msg_id: &str, dst: &str) -> RsmqResult<bool> {
+        self.functions
+            .move_message(&mut self.connection.0, src, msg_id, dst, &self.scripts)
+            .await
+    }
+
+    async fn receive_message_or_dlq<E: TryFrom<RedisBytes, Error = Vec<u8>>>(
+        &mut self,
+        qname: &str,
+        hidden: Option<Duration>,
+        dlq: &str,
+        max_receives: u64,
+    ) -> RsmqResult<Option<RsmqMessage<E>>> {
+        self.functions
+            .receive_message_or_dlq::<E>(
+                &mut self.connection.0,
+                qname,
+                hidden,
+                dlq,
+                max_receives,
                 &self.scripts,
             )
             .await

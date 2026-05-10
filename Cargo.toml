@@ -1,6 +1,6 @@
 [package]
 name = "rsmq_async"
-version = "17.4.0"
+version = "18.0.0"
 authors = ["David Bonet <webbonet@gmail.com>"]
 edition = "2021"
 license = "MIT"
@@ -26,6 +26,7 @@ serde_json = { version = "^1", optional = true }
 futures-util = { version = "^0.3", optional = true, default-features = false, features = [
     "std",
 ] }
+log = { version = "^0.4", optional = true }
 
 [dev-dependencies]
 net2 = "^0.2"
@@ -47,6 +48,7 @@ worker = [
     "tokio/time",
     "tokio/macros",
     "dep:futures-util",
+    "dep:log",
 ]
 
 [[example]]

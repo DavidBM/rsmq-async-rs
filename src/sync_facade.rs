@@ -67,38 +67,6 @@ impl RsmqSync {
             scripts,
         })
     }
-
-    /// Atomically moves a message from `src` to `dst`. See [`crate::Rsmq::move_message`].
-    pub fn move_message(&mut self, src: &str, msg_id: &str, dst: &str) -> RsmqResult<bool> {
-        self.runner.block_on(async {
-            self.functions
-                .move_message(&mut self.connection.0, src, msg_id, dst, &self.scripts)
-                .await
-        })
-    }
-
-    /// Receives the next visible message, routing over-budget messages to `dlq`.
-    /// See [`crate::Rsmq::receive_message_or_dlq`].
-    pub fn receive_message_or_dlq<E: TryFrom<RedisBytes, Error = Vec<u8>>>(
-        &mut self,
-        qname: &str,
-        hidden: Option<Duration>,
-        dlq: &str,
-        max_receives: u64,
-    ) -> RsmqResult<Option<RsmqMessage<E>>> {
-        self.runner.block_on(async {
-            self.functions
-                .receive_message_or_dlq::<E>(
-                    &mut self.connection.0,
-                    qname,
-                    hidden,
-                    dlq,
-                    max_receives,
-                    &self.scripts,
-                )
-                .await
-        })
-    }
 }
 
 impl RsmqConnectionSync for RsmqSync {
@@ -251,6 +219,35 @@ impl RsmqConnectionSync for RsmqSync {
                     hidden,
                     delay,
                     maxsize,
+                    &self.scripts,
+                )
+                .await
+        })
+    }
+
+    fn move_message(&mut self, src: &str, msg_id: &str, dst: &str) -> RsmqResult<bool> {
+        self.runner.block_on(async {
+            self.functions
+                .move_message(&mut self.connection.0, src, msg_id, dst, &self.scripts)
+                .await
+        })
+    }
+
+    fn receive_message_or_dlq<E: TryFrom<RedisBytes, Error = Vec<u8>>>(
+        &mut self,
+        qname: &str,
+        hidden: Option<Duration>,
+        dlq: &str,
+        max_receives: u64,
+    ) -> RsmqResult<Option<RsmqMessage<E>>> {
+        self.runner.block_on(async {
+            self.functions
+                .receive_message_or_dlq::<E>(
+                    &mut self.connection.0,
+                    qname,
+                    hidden,
+                    dlq,
+                    max_receives,
                     &self.scripts,
                 )
                 .await

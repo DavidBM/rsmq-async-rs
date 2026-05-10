@@ -1,5 +1,19 @@
 # Changelog
 
+## 18.0.0 - 2026-05-10
+
+### Breaking
+- `move_message` and `receive_message_or_dlq` are now required methods on the [`RsmqConnection`] and [`RsmqConnectionSync`] traits (no default impls — neither has a clean atomic non-Lua implementation). The inherent methods on `Rsmq`, `PooledRsmq`, and `RsmqSync` introduced in 17.3.0 / 17.4.0 are removed. Callers using the inherent methods need to add `use rsmq_async::RsmqConnection;` (most users already have this for any other trait method). Downstream `RsmqConnection` impls (test mocks, etc.) need to implement these two methods.
+
+### Changed
+- The [`Worker`] now logs handler errors, heartbeat failures, and DLQ moves through the [`log`](https://docs.rs/log) crate (`warn!` / `error!`) instead of `eprintln!`. Wire up `env_logger`, `tracing-log`, or any other `log` adapter to control verbosity. Adds `log` (≈zero-overhead façade) as a transitive dep of the `worker` feature.
+
+### Documentation
+- README rewritten to cover all features added across 17.x: `serde`, `Worker`, batching, DLQ primitives, and the updated Cargo features table. Quick-start updated to v18.
+
+### Internal
+- CI now builds all examples with `--all-features` to catch breakage in the gated `serde_message` and `worker_helper` examples.
+
 ## 17.4.0 - 2026-05-10
 
 ### Added

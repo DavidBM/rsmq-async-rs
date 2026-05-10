@@ -154,6 +154,37 @@ pub trait RsmqConnection {
         delay: Option<Duration>,
         maxsize: Option<i64>,
     ) -> impl Future<Output = RsmqResult<RsmqQueueAttributes>> + Send;
+
+    /// Atomically moves a message from `src` to `dst`, preserving its body and the
+    /// `:rc` / `:fr` metadata. The message becomes visible in `dst` immediately
+    /// (score = current time). Returns `true` if the message was found in `src`,
+    /// `false` if it didn't exist there. Rejects `src == dst`.
+    ///
+    /// `dst` must be a queue that already exists (created via `create_queue`); this
+    /// method does not initialize the destination queue's configuration, only inserts
+    /// the message and bumps `totalsent`.
+    fn move_message(
+        &mut self,
+        src: &str,
+        msg_id: &str,
+        dst: &str,
+    ) -> impl Future<Output = RsmqResult<bool>> + Send;
+
+    /// Receives the next visible message, but transparently routes any message whose
+    /// post-increment `rc` exceeds `max_receives` to `dlq` (preserving `:rc` and `:fr`)
+    /// and tries the next visible message. Returns the first message whose `rc` is
+    /// still within budget, or `None` if no eligible message was found within the
+    /// script's per-call iteration cap. Rejects `qname == dlq`.
+    ///
+    /// `max_receives = 0` ⇒ never deliver, always route to DLQ.
+    /// `max_receives = N` ⇒ deliver at most N times before routing to DLQ.
+    fn receive_message_or_dlq<E: TryFrom<RedisBytes, Error = Vec<u8>>>(
+        &mut self,
+        qname: &str,
+        hidden: Option<Duration>,
+        dlq: &str,
+        max_receives: u64,
+    ) -> impl Future<Output = RsmqResult<Option<RsmqMessage<E>>>> + Send;
 }
 
 #[cfg(feature = "sync")]
@@ -301,4 +332,18 @@ pub trait RsmqConnectionSync {
         delay: Option<Duration>,
         maxsize: Option<i64>,
     ) -> RsmqResult<RsmqQueueAttributes>;
+
+    /// Atomically moves a message from `src` to `dst`. See the async counterpart
+    /// [`RsmqConnection::move_message`] for the full contract.
+    fn move_message(&mut self, src: &str, msg_id: &str, dst: &str) -> RsmqResult<bool>;
+
+    /// Atomically receives a message, routing over-budget messages to `dlq`.
+    /// See the async counterpart [`RsmqConnection::receive_message_or_dlq`].
+    fn receive_message_or_dlq<E: TryFrom<RedisBytes, Error = Vec<u8>>>(
+        &mut self,
+        qname: &str,
+        hidden: Option<Duration>,
+        dlq: &str,
+        max_receives: u64,
+    ) -> RsmqResult<Option<RsmqMessage<E>>>;
 }

@@ -31,6 +31,7 @@ use crate::types::RedisBytes;
 use crate::{Rsmq, RsmqConnection, RsmqError, RsmqMessage, RsmqOptions, RsmqResult};
 use core::convert::TryFrom;
 use futures_util::StreamExt;
+use log::{error, warn};
 use std::collections::HashMap;
 use std::error::Error as StdError;
 use std::fmt;
@@ -332,9 +333,7 @@ impl Worker {
                         .change_message_visibility(qname, &msg_id, self.config.visibility_extension)
                         .await
                     {
-                        eprintln!(
-                            "rsmq_async worker: heartbeat failed for {qname}/{msg_id}: {e}"
-                        );
+                        warn!("rsmq worker: heartbeat failed for {qname}/{msg_id}: {e}");
                     }
                 }
             }
@@ -352,23 +351,23 @@ impl Worker {
                 if let Some(dlq_queue) = dlq_target {
                     match self.rsmq.move_message(qname, &msg_id, &dlq_queue).await {
                         Ok(true) => {
-                            eprintln!(
-                                "rsmq_async worker: routed {qname}/{msg_id} to DLQ {dlq_queue} after {msg_rc} failure(s): {e}"
+                            warn!(
+                                "rsmq worker: routed {qname}/{msg_id} to DLQ {dlq_queue} after {msg_rc} failure(s): {e}"
                             );
                         }
                         Ok(false) => {
                             // Message disappeared (concurrent delete?). Nothing to do.
                         }
                         Err(move_err) => {
-                            eprintln!(
-                                "rsmq_async worker: failed to move {qname}/{msg_id} to DLQ {dlq_queue}: {move_err} (handler error: {e})"
+                            error!(
+                                "rsmq worker: failed to move {qname}/{msg_id} to DLQ {dlq_queue}: {move_err} (handler error: {e})"
                             );
                         }
                     }
                     return Ok(());
                 }
-                eprintln!(
-                    "rsmq_async worker: handler failed for {qname}/{msg_id} (rc={msg_rc}): {e} (will redeliver)"
+                warn!(
+                    "rsmq worker: handler failed for {qname}/{msg_id} (rc={msg_rc}): {e} (will redeliver)"
                 );
                 // Leave the message hidden — it will be redelivered after the queue's vt.
             }
