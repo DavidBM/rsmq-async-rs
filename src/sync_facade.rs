@@ -1,6 +1,6 @@
-use crate::functions::{CachedScript, RbmqFunctions};
+use crate::functions::RbmqFunctions;
 use crate::r#trait::RbmqConnectionSync;
-use crate::types::{RedisBytes, RbmqMessage, RbmqOptions, RbmqQueueAttributes};
+use crate::types::{RbmqMessage, RbmqOptions, RbmqQueueAttributes, RedisBytes};
 use crate::{RbmqError, RbmqResult};
 use core::convert::TryFrom;
 use core::marker::PhantomData;
@@ -22,11 +22,10 @@ pub struct RbmqSync {
     connection: RedisConnection,
     functions: RbmqFunctions<redis::aio::MultiplexedConnection>,
     runner: Arc<Runtime>,
-    scripts: CachedScript,
 }
 
 impl RbmqSync {
-    /// Creates a new rbmq instance, including its connection
+    /// Creates a new rbmq instance, including its connection.
     pub async fn new(options: RbmqOptions) -> RbmqResult<RbmqSync> {
         let runner = tokio::runtime::Builder::new_current_thread()
             .enable_all()
@@ -54,17 +53,13 @@ impl RbmqSync {
             conn: PhantomData,
         };
 
-        let (connection, scripts) = runner.block_on(async {
-            let mut conn = client.get_multiplexed_async_connection().await?;
-            let scripts = functions.load_scripts(&mut conn).await?;
-            Result::<_, RbmqError>::Ok((conn, scripts))
-        })?;
+        let connection = runner
+            .block_on(async { client.get_multiplexed_async_connection().await })?;
 
         Ok(RbmqSync {
             connection: RedisConnection(connection),
             functions,
             runner: Arc::new(runner),
-            scripts,
         })
     }
 }
@@ -78,13 +73,7 @@ impl RbmqConnectionSync for RbmqSync {
     ) -> RbmqResult<()> {
         self.runner.block_on(async {
             self.functions
-                .change_message_visibility(
-                    &mut self.connection.0,
-                    qname,
-                    message_id,
-                    hidden,
-                    &self.scripts,
-                )
+                .change_message_visibility(&mut self.connection.0, qname, message_id, hidden)
                 .await
         })
     }
@@ -98,14 +87,7 @@ impl RbmqConnectionSync for RbmqSync {
     ) -> RbmqResult<()> {
         self.runner.block_on(async {
             self.functions
-                .create_queue(
-                    &mut self.connection.0,
-                    qname,
-                    hidden,
-                    delay,
-                    maxsize,
-                    &self.scripts,
-                )
+                .create_queue(&mut self.connection.0, qname, hidden, delay, maxsize)
                 .await
         })
     }
@@ -113,21 +95,21 @@ impl RbmqConnectionSync for RbmqSync {
     fn delete_message(&mut self, qname: &str, id: &str) -> RbmqResult<bool> {
         self.runner.block_on(async {
             self.functions
-                .delete_message(&mut self.connection.0, qname, id, &self.scripts)
+                .delete_message(&mut self.connection.0, qname, id)
                 .await
         })
     }
+
     fn delete_queue(&mut self, qname: &str) -> RbmqResult<()> {
         self.runner.block_on(async {
-            self.functions
-                .delete_queue(&mut self.connection.0, qname, &self.scripts)
-                .await
+            self.functions.delete_queue(&mut self.connection.0, qname).await
         })
     }
+
     fn get_queue_attributes(&mut self, qname: &str) -> RbmqResult<RbmqQueueAttributes> {
         self.runner.block_on(async {
             self.functions
-                .get_queue_attributes(&mut self.connection.0, qname, &self.scripts)
+                .get_queue_attributes(&mut self.connection.0, qname)
                 .await
         })
     }
@@ -142,9 +124,7 @@ impl RbmqConnectionSync for RbmqSync {
         qname: &str,
     ) -> RbmqResult<Option<RbmqMessage<E>>> {
         self.runner.block_on(async {
-            self.functions
-                .pop_message::<E>(&mut self.connection.0, qname, &self.scripts)
-                .await
+            self.functions.pop_message::<E>(&mut self.connection.0, qname).await
         })
     }
 
@@ -155,7 +135,7 @@ impl RbmqConnectionSync for RbmqSync {
     ) -> RbmqResult<Option<RbmqMessage<E>>> {
         self.runner.block_on(async {
             self.functions
-                .receive_message::<E>(&mut self.connection.0, qname, hidden, &self.scripts)
+                .receive_message::<E>(&mut self.connection.0, qname, hidden)
                 .await
         })
     }
@@ -168,7 +148,7 @@ impl RbmqConnectionSync for RbmqSync {
     ) -> RbmqResult<String> {
         self.runner.block_on(async {
             self.functions
-                .send_message(&mut self.connection.0, qname, message, delay, &self.scripts)
+                .send_message(&mut self.connection.0, qname, message, delay)
                 .await
         })
     }
@@ -181,13 +161,7 @@ impl RbmqConnectionSync for RbmqSync {
     ) -> RbmqResult<Vec<String>> {
         self.runner.block_on(async {
             self.functions
-                .send_message_batch(
-                    &mut self.connection.0,
-                    qname,
-                    messages,
-                    delay,
-                    &self.scripts,
-                )
+                .send_message_batch(&mut self.connection.0, qname, messages, delay)
                 .await
         })
     }
@@ -200,13 +174,7 @@ impl RbmqConnectionSync for RbmqSync {
     ) -> RbmqResult<Vec<RbmqMessage<E>>> {
         self.runner.block_on(async {
             self.functions
-                .receive_message_batch::<E>(
-                    &mut self.connection.0,
-                    qname,
-                    hidden,
-                    max_count,
-                    &self.scripts,
-                )
+                .receive_message_batch::<E>(&mut self.connection.0, qname, hidden, max_count)
                 .await
         })
     }
@@ -220,14 +188,7 @@ impl RbmqConnectionSync for RbmqSync {
     ) -> RbmqResult<RbmqQueueAttributes> {
         self.runner.block_on(async {
             self.functions
-                .set_queue_attributes(
-                    &mut self.connection.0,
-                    qname,
-                    hidden,
-                    delay,
-                    maxsize,
-                    &self.scripts,
-                )
+                .set_queue_attributes(&mut self.connection.0, qname, hidden, delay, maxsize)
                 .await
         })
     }
@@ -235,7 +196,7 @@ impl RbmqConnectionSync for RbmqSync {
     fn move_message(&mut self, src: &str, msg_id: &str, dst: &str) -> RbmqResult<bool> {
         self.runner.block_on(async {
             self.functions
-                .move_message(&mut self.connection.0, src, msg_id, dst, &self.scripts)
+                .move_message(&mut self.connection.0, src, msg_id, dst)
                 .await
         })
     }
@@ -255,7 +216,6 @@ impl RbmqConnectionSync for RbmqSync {
                     hidden,
                     dlq,
                     max_receives,
-                    &self.scripts,
                 )
                 .await
         })

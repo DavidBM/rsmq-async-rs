@@ -1,6 +1,6 @@
-use crate::functions::{CachedScript, RbmqFunctions};
+use crate::functions::RbmqFunctions;
 use crate::r#trait::RbmqConnection;
-use crate::types::{RedisBytes, RbmqMessage, RbmqOptions, RbmqQueueAttributes};
+use crate::types::{RbmqMessage, RbmqOptions, RbmqQueueAttributes, RedisBytes};
 use crate::RbmqResult;
 use core::convert::TryFrom;
 use core::marker::PhantomData;
@@ -19,11 +19,10 @@ impl std::fmt::Debug for RedisConnection {
 pub struct Rbmq {
     connection: RedisConnection,
     functions: RbmqFunctions<redis::aio::MultiplexedConnection>,
-    scripts: CachedScript,
 }
 
 impl Rbmq {
-    /// Creates a new rbmq instance, including its connection
+    /// Creates a new rbmq instance, including its connection.
     pub async fn new(options: RbmqOptions) -> RbmqResult<Rbmq> {
         let mut redis_info = redis::RedisConnectionInfo::default()
             .set_db(options.db.into())
@@ -39,15 +38,14 @@ impl Rbmq {
             .set_redis_settings(redis_info);
 
         let client = redis::Client::open(conn_info)?;
-
         let connection = client.get_multiplexed_async_connection().await?;
 
         Rbmq::new_with_connection(connection, options.realtime, Some(&options.ns)).await
     }
 
-    /// Special method for when you already have a redis-rs connection and you don't want redis_async to create a new one.
+    /// For when you already have a redis-rs multiplexed connection and don't want a new one.
     pub async fn new_with_connection(
-        mut connection: redis::aio::MultiplexedConnection,
+        connection: redis::aio::MultiplexedConnection,
         realtime: bool,
         ns: Option<&str>,
     ) -> RbmqResult<Rbmq> {
@@ -56,13 +54,9 @@ impl Rbmq {
             realtime,
             conn: PhantomData,
         };
-
-        let scripts = functions.load_scripts(&mut connection).await?;
-
         Ok(Rbmq {
             connection: RedisConnection(connection),
             functions,
-            scripts,
         })
     }
 }
@@ -75,13 +69,7 @@ impl RbmqConnection for Rbmq {
         hidden: Duration,
     ) -> RbmqResult<()> {
         self.functions
-            .change_message_visibility(
-                &mut self.connection.0,
-                qname,
-                message_id,
-                hidden,
-                &self.scripts,
-            )
+            .change_message_visibility(&mut self.connection.0, qname, message_id, hidden)
             .await
     }
 
@@ -93,30 +81,25 @@ impl RbmqConnection for Rbmq {
         maxsize: Option<i64>,
     ) -> RbmqResult<()> {
         self.functions
-            .create_queue(
-                &mut self.connection.0,
-                qname,
-                hidden,
-                delay,
-                maxsize,
-                &self.scripts,
-            )
+            .create_queue(&mut self.connection.0, qname, hidden, delay, maxsize)
             .await
     }
 
     async fn delete_message(&mut self, qname: &str, id: &str) -> RbmqResult<bool> {
         self.functions
-            .delete_message(&mut self.connection.0, qname, id, &self.scripts)
+            .delete_message(&mut self.connection.0, qname, id)
             .await
     }
+
     async fn delete_queue(&mut self, qname: &str) -> RbmqResult<()> {
         self.functions
-            .delete_queue(&mut self.connection.0, qname, &self.scripts)
+            .delete_queue(&mut self.connection.0, qname)
             .await
     }
+
     async fn get_queue_attributes(&mut self, qname: &str) -> RbmqResult<RbmqQueueAttributes> {
         self.functions
-            .get_queue_attributes(&mut self.connection.0, qname, &self.scripts)
+            .get_queue_attributes(&mut self.connection.0, qname)
             .await
     }
 
@@ -129,7 +112,7 @@ impl RbmqConnection for Rbmq {
         qname: &str,
     ) -> RbmqResult<Option<RbmqMessage<E>>> {
         self.functions
-            .pop_message::<E>(&mut self.connection.0, qname, &self.scripts)
+            .pop_message::<E>(&mut self.connection.0, qname)
             .await
     }
 
@@ -139,7 +122,7 @@ impl RbmqConnection for Rbmq {
         hidden: Option<Duration>,
     ) -> RbmqResult<Option<RbmqMessage<E>>> {
         self.functions
-            .receive_message::<E>(&mut self.connection.0, qname, hidden, &self.scripts)
+            .receive_message::<E>(&mut self.connection.0, qname, hidden)
             .await
     }
 
@@ -150,7 +133,7 @@ impl RbmqConnection for Rbmq {
         delay: Option<Duration>,
     ) -> RbmqResult<String> {
         self.functions
-            .send_message(&mut self.connection.0, qname, message, delay, &self.scripts)
+            .send_message(&mut self.connection.0, qname, message, delay)
             .await
     }
 
@@ -161,13 +144,7 @@ impl RbmqConnection for Rbmq {
         delay: Option<Duration>,
     ) -> RbmqResult<Vec<String>> {
         self.functions
-            .send_message_batch(
-                &mut self.connection.0,
-                qname,
-                messages,
-                delay,
-                &self.scripts,
-            )
+            .send_message_batch(&mut self.connection.0, qname, messages, delay)
             .await
     }
 
@@ -178,13 +155,7 @@ impl RbmqConnection for Rbmq {
         max_count: u32,
     ) -> RbmqResult<Vec<RbmqMessage<E>>> {
         self.functions
-            .receive_message_batch::<E>(
-                &mut self.connection.0,
-                qname,
-                hidden,
-                max_count,
-                &self.scripts,
-            )
+            .receive_message_batch::<E>(&mut self.connection.0, qname, hidden, max_count)
             .await
     }
 
@@ -196,20 +167,13 @@ impl RbmqConnection for Rbmq {
         maxsize: Option<i64>,
     ) -> RbmqResult<RbmqQueueAttributes> {
         self.functions
-            .set_queue_attributes(
-                &mut self.connection.0,
-                qname,
-                hidden,
-                delay,
-                maxsize,
-                &self.scripts,
-            )
+            .set_queue_attributes(&mut self.connection.0, qname, hidden, delay, maxsize)
             .await
     }
 
     async fn move_message(&mut self, src: &str, msg_id: &str, dst: &str) -> RbmqResult<bool> {
         self.functions
-            .move_message(&mut self.connection.0, src, msg_id, dst, &self.scripts)
+            .move_message(&mut self.connection.0, src, msg_id, dst)
             .await
     }
 
@@ -221,14 +185,7 @@ impl RbmqConnection for Rbmq {
         max_receives: u64,
     ) -> RbmqResult<Option<RbmqMessage<E>>> {
         self.functions
-            .receive_message_or_dlq::<E>(
-                &mut self.connection.0,
-                qname,
-                hidden,
-                dlq,
-                max_receives,
-                &self.scripts,
-            )
+            .receive_message_or_dlq::<E>(&mut self.connection.0, qname, hidden, dlq, max_receives)
             .await
     }
 }

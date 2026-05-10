@@ -6,7 +6,9 @@ use crate::{
 use core::convert::TryFrom;
 use rand::RngExt;
 use redis::aio::ConnectionLike;
+use redis::Script;
 use std::convert::TryInto;
+use std::sync::LazyLock;
 use std::time::Duration;
 
 // Defensive cap on duration arguments (~100 years). Anything above is almost certainly
@@ -16,13 +18,33 @@ const MAX_DURATION_MS: u64 = 100 * 365 * 24 * 60 * 60 * 1000;
 // Sentinel for "use the queue's stored default value" passed in as ARGV strings.
 const USE_DEFAULT: &str = "-1";
 
+// Each public operation is one Lua script, loaded lazily as a `redis::Script` which handles
+// EVALSHA + EVAL-on-NOSCRIPT-fallback automatically. SHA1 is computed at construction.
+macro_rules! script {
+    ($name:ident, $path:literal) => {
+        static $name: LazyLock<Script> =
+            LazyLock::new(|| Script::new(include_str!(concat!("../scripts/", $path))));
+    };
+}
+
+script!(CREATE_QUEUE, "createQueue.lua");
+script!(DELETE_QUEUE, "deleteQueue.lua");
+script!(DELETE_MESSAGE, "deleteMessage.lua");
+script!(SET_QUEUE_ATTRIBUTES, "setQueueAttributes.lua");
+script!(GET_QUEUE_ATTRIBUTES, "getQueueAttributes.lua");
+script!(CHANGE_MESSAGE_VISIBILITY, "changeMessageVisibility.lua");
+script!(SEND_MESSAGE, "sendMessage.lua");
+script!(SEND_MESSAGE_BATCH, "sendMessageBatch.lua");
+script!(RECEIVE_MESSAGE, "receiveMessage.lua");
+script!(RECEIVE_MESSAGE_BATCH, "receiveMessageBatch.lua");
+script!(RECEIVE_MESSAGE_OR_DLQ, "receiveMessageOrDlq.lua");
+script!(MOVE_MESSAGE, "moveMessage.lua");
+
 /// Translate Lua `error_reply("X")` results back into the corresponding `RbmqError`.
 /// Redis adds an "ERR" prefix to error_reply strings that contain no space, so the
 /// known marker ends up in `detail()` rather than `code()`.
 fn map_script_error(err: redis::RedisError) -> RbmqError {
-    let detail = err.detail();
-    let code = err.code();
-    let key = detail.or(code).unwrap_or("");
+    let key = err.detail().or(err.code()).unwrap_or("");
     match key {
         "QueueNotFound" => RbmqError::QueueNotFound,
         "QueueExists" => RbmqError::QueueExists,
@@ -31,7 +53,7 @@ fn map_script_error(err: redis::RedisError) -> RbmqError {
     }
 }
 
-/// The main object of this library. Creates/Handles the redis connection and contains all the methods
+/// The main object of this library. Holds connection metadata and dispatches to the Lua scripts.
 #[derive(Clone)]
 pub struct RbmqFunctions<T: ConnectionLike> {
     pub(crate) ns: String,
@@ -45,81 +67,7 @@ impl<T: ConnectionLike> std::fmt::Debug for RbmqFunctions<T> {
     }
 }
 
-#[derive(Debug, Clone)]
-pub struct CachedScript {
-    create_queue: String,
-    delete_queue: String,
-    delete_message: String,
-    set_queue_attributes: String,
-    get_queue_attributes: String,
-    change_message_visibility: String,
-    send_message: String,
-    send_message_batch: String,
-    receive_message: String,
-    receive_message_batch: String,
-    receive_message_or_dlq: String,
-    move_message: String,
-}
-
-async fn load_script<T: ConnectionLike>(conn: &mut T, src: &str) -> RbmqResult<String> {
-    let sha: String = redis::cmd("SCRIPT")
-        .arg("LOAD")
-        .arg(src)
-        .query_async(conn)
-        .await
-        .map_err(map_script_error)?;
-    Ok(sha)
-}
-
-impl CachedScript {
-    async fn init<T: ConnectionLike>(conn: &mut T) -> RbmqResult<Self> {
-        Ok(Self {
-            create_queue: load_script(conn, include_str!("../scripts/createQueue.lua")).await?,
-            delete_queue: load_script(conn, include_str!("../scripts/deleteQueue.lua")).await?,
-            delete_message: load_script(conn, include_str!("../scripts/deleteMessage.lua")).await?,
-            set_queue_attributes: load_script(
-                conn,
-                include_str!("../scripts/setQueueAttributes.lua"),
-            )
-            .await?,
-            get_queue_attributes: load_script(
-                conn,
-                include_str!("../scripts/getQueueAttributes.lua"),
-            )
-            .await?,
-            change_message_visibility: load_script(
-                conn,
-                include_str!("../scripts/changeMessageVisibility.lua"),
-            )
-            .await?,
-            send_message: load_script(conn, include_str!("../scripts/sendMessage.lua")).await?,
-            send_message_batch: load_script(
-                conn,
-                include_str!("../scripts/sendMessageBatch.lua"),
-            )
-            .await?,
-            receive_message: load_script(conn, include_str!("../scripts/receiveMessage.lua"))
-                .await?,
-            receive_message_batch: load_script(
-                conn,
-                include_str!("../scripts/receiveMessageBatch.lua"),
-            )
-            .await?,
-            receive_message_or_dlq: load_script(
-                conn,
-                include_str!("../scripts/receiveMessageOrDlq.lua"),
-            )
-            .await?,
-            move_message: load_script(conn, include_str!("../scripts/moveMessage.lua")).await?,
-        })
-    }
-}
-
 impl<T: ConnectionLike> RbmqFunctions<T> {
-    pub async fn load_scripts(&self, conn: &mut T) -> RbmqResult<CachedScript> {
-        CachedScript::init(conn).await
-    }
-
     fn cfg_key(&self, q: &str) -> String {
         format!("{}:{}:cfg", self.ns, q)
     }
@@ -140,18 +88,15 @@ impl<T: ConnectionLike> RbmqFunctions<T> {
         qname: &str,
         message_id: &str,
         hidden: Duration,
-        cached_script: &CachedScript,
     ) -> RbmqResult<()> {
         let hidden_ms = duration_ms(Some(hidden), &Duration::from_secs(30));
         number_in_range(hidden_ms, 0, MAX_DURATION_MS)?;
 
-        let _: i64 = redis::cmd("EVALSHA")
-            .arg(&cached_script.change_message_visibility)
-            .arg(1)
-            .arg(self.zset_key(qname))
+        let _: i64 = CHANGE_MESSAGE_VISIBILITY
+            .key(self.zset_key(qname))
             .arg(message_id)
             .arg(hidden_ms.to_string())
-            .query_async(conn)
+            .invoke_async(conn)
             .await
             .map_err(map_script_error)?;
         Ok(())
@@ -165,7 +110,6 @@ impl<T: ConnectionLike> RbmqFunctions<T> {
         hidden: Option<Duration>,
         delay: Option<Duration>,
         maxsize: Option<i64>,
-        cached_script: &CachedScript,
     ) -> RbmqResult<()> {
         valid_name_format(qname)?;
         let hidden_ms = duration_ms(hidden, &Duration::from_secs(30));
@@ -180,16 +124,14 @@ impl<T: ConnectionLike> RbmqFunctions<T> {
             }
         }
 
-        let result: i64 = redis::cmd("EVALSHA")
-            .arg(&cached_script.create_queue)
-            .arg(2)
-            .arg(self.cfg_key(qname))
-            .arg(self.queues_key())
+        let result: i64 = CREATE_QUEUE
+            .key(self.cfg_key(qname))
+            .key(self.queues_key())
             .arg(qname)
             .arg(hidden_ms.to_string())
             .arg(delay_ms.to_string())
             .arg(maxsize.to_string())
-            .query_async(conn)
+            .invoke_async(conn)
             .await
             .map_err(map_script_error)?;
 
@@ -205,33 +147,23 @@ impl<T: ConnectionLike> RbmqFunctions<T> {
         conn: &mut T,
         qname: &str,
         id: &str,
-        cached_script: &CachedScript,
     ) -> RbmqResult<bool> {
-        let result: i64 = redis::cmd("EVALSHA")
-            .arg(&cached_script.delete_message)
-            .arg(1)
-            .arg(self.zset_key(qname))
+        let result: i64 = DELETE_MESSAGE
+            .key(self.zset_key(qname))
             .arg(id)
-            .query_async(conn)
+            .invoke_async(conn)
             .await
             .map_err(map_script_error)?;
         Ok(result == 1)
     }
 
     /// Delete the queue and all its messages.
-    pub async fn delete_queue(
-        &self,
-        conn: &mut T,
-        qname: &str,
-        cached_script: &CachedScript,
-    ) -> RbmqResult<()> {
-        let result: i64 = redis::cmd("EVALSHA")
-            .arg(&cached_script.delete_queue)
-            .arg(2)
-            .arg(self.zset_key(qname))
-            .arg(self.queues_key())
+    pub async fn delete_queue(&self, conn: &mut T, qname: &str) -> RbmqResult<()> {
+        let result: i64 = DELETE_QUEUE
+            .key(self.zset_key(qname))
+            .key(self.queues_key())
             .arg(qname)
-            .query_async(conn)
+            .invoke_async(conn)
             .await
             .map_err(map_script_error)?;
         if result == 0 {
@@ -245,7 +177,6 @@ impl<T: ConnectionLike> RbmqFunctions<T> {
         &self,
         conn: &mut T,
         qname: &str,
-        cached_script: &CachedScript,
     ) -> RbmqResult<RbmqQueueAttributes> {
         #[allow(clippy::type_complexity)]
         let result: (
@@ -260,12 +191,10 @@ impl<T: ConnectionLike> RbmqFunctions<T> {
             Option<i64>,
             u64,
             u64,
-        ) = redis::cmd("EVALSHA")
-            .arg(&cached_script.get_queue_attributes)
-            .arg(2)
-            .arg(self.cfg_key(qname))
-            .arg(self.zset_key(qname))
-            .query_async(conn)
+        ) = GET_QUEUE_ATTRIBUTES
+            .key(self.cfg_key(qname))
+            .key(self.zset_key(qname))
+            .invoke_async(conn)
             .await
             .map_err(map_script_error)?;
 
@@ -309,8 +238,7 @@ impl<T: ConnectionLike> RbmqFunctions<T> {
         let queues = redis::cmd("SMEMBERS")
             .arg(self.queues_key())
             .query_async(conn)
-            .await
-            .map_err(map_script_error)?;
+            .await?;
         Ok(queues)
     }
 
@@ -319,10 +247,8 @@ impl<T: ConnectionLike> RbmqFunctions<T> {
         &self,
         conn: &mut T,
         qname: &str,
-        cached_script: &CachedScript,
     ) -> RbmqResult<Option<RbmqMessage<E>>> {
-        self.receive_inner(conn, qname, None, true, cached_script)
-            .await
+        self.receive_inner(conn, qname, None, true).await
     }
 
     /// Receive a message and reserve it for `hidden` time (or queue default).
@@ -331,7 +257,6 @@ impl<T: ConnectionLike> RbmqFunctions<T> {
         conn: &mut T,
         qname: &str,
         hidden: Option<Duration>,
-        cached_script: &CachedScript,
     ) -> RbmqResult<Option<RbmqMessage<E>>> {
         if let Some(h) = hidden {
             number_in_range(
@@ -340,8 +265,7 @@ impl<T: ConnectionLike> RbmqFunctions<T> {
                 MAX_DURATION_MS,
             )?;
         }
-        self.receive_inner(conn, qname, hidden, false, cached_script)
-            .await
+        self.receive_inner(conn, qname, hidden, false).await
     }
 
     async fn receive_inner<E: TryFrom<RedisBytes, Error = Vec<u8>>>(
@@ -350,22 +274,21 @@ impl<T: ConnectionLike> RbmqFunctions<T> {
         qname: &str,
         hidden: Option<Duration>,
         should_delete: bool,
-        cached_script: &CachedScript,
     ) -> RbmqResult<Option<RbmqMessage<E>>> {
         let hidden_arg = match hidden {
             Some(h) => u64::try_from(h.as_millis())
-                .map_err(|_| RbmqError::InvalidValue("hidden".into(), "0".into(), "u64::MAX".into()))?
+                .map_err(|_| {
+                    RbmqError::InvalidValue("hidden".into(), "0".into(), "u64::MAX".into())
+                })?
                 .to_string(),
             None => USE_DEFAULT.to_string(),
         };
 
-        let result: (bool, String, Vec<u8>, u64, u64, u64) = redis::cmd("EVALSHA")
-            .arg(&cached_script.receive_message)
-            .arg(1)
-            .arg(self.zset_key(qname))
+        let result: (bool, String, Vec<u8>, u64, u64, u64) = RECEIVE_MESSAGE
+            .key(self.zset_key(qname))
             .arg(hidden_arg)
             .arg(if should_delete { "true" } else { "false" })
-            .query_async(conn)
+            .invoke_async(conn)
             .await
             .map_err(map_script_error)?;
 
@@ -391,20 +314,19 @@ impl<T: ConnectionLike> RbmqFunctions<T> {
         qname: &str,
         message: E,
         delay: Option<Duration>,
-        cached_script: &CachedScript,
     ) -> RbmqResult<String> {
         let body: RedisBytes = message.into();
-        let body_len: i64 = body
+        let _len: i64 = body
             .0
             .len()
             .try_into()
             .map_err(|_| RbmqError::MessageTooLong)?;
-        let _ = body_len; // size is enforced inside the script against the queue's stored maxsize.
 
         let delay_arg = match delay {
             Some(d) => {
-                let ms = u64::try_from(d.as_millis())
-                    .map_err(|_| RbmqError::InvalidValue("delay".into(), "0".into(), "u64::MAX".into()))?;
+                let ms = u64::try_from(d.as_millis()).map_err(|_| {
+                    RbmqError::InvalidValue("delay".into(), "0".into(), "u64::MAX".into())
+                })?;
                 number_in_range(ms, 0, MAX_DURATION_MS)?;
                 ms.to_string()
             }
@@ -414,16 +336,14 @@ impl<T: ConnectionLike> RbmqFunctions<T> {
         let id = Self::make_id()?;
         let realtime_flag = if self.realtime { "1" } else { "0" };
 
-        let _returned: String = redis::cmd("EVALSHA")
-            .arg(&cached_script.send_message)
-            .arg(2)
-            .arg(self.zset_key(qname))
-            .arg(self.rt_channel(qname))
+        let _: String = SEND_MESSAGE
+            .key(self.zset_key(qname))
+            .key(self.rt_channel(qname))
             .arg(&id)
             .arg(delay_arg)
             .arg(realtime_flag)
             .arg(body.0)
-            .query_async(conn)
+            .invoke_async(conn)
             .await
             .map_err(map_script_error)?;
         Ok(id)
@@ -436,7 +356,6 @@ impl<T: ConnectionLike> RbmqFunctions<T> {
         qname: &str,
         messages: Vec<E>,
         delay: Option<Duration>,
-        cached_script: &CachedScript,
     ) -> RbmqResult<Vec<String>> {
         if messages.is_empty() {
             return Ok(Vec::new());
@@ -444,8 +363,9 @@ impl<T: ConnectionLike> RbmqFunctions<T> {
 
         let delay_arg = match delay {
             Some(d) => {
-                let ms = u64::try_from(d.as_millis())
-                    .map_err(|_| RbmqError::InvalidValue("delay".into(), "0".into(), "u64::MAX".into()))?;
+                let ms = u64::try_from(d.as_millis()).map_err(|_| {
+                    RbmqError::InvalidValue("delay".into(), "0".into(), "u64::MAX".into())
+                })?;
                 number_in_range(ms, 0, MAX_DURATION_MS)?;
                 ms.to_string()
             }
@@ -462,19 +382,18 @@ impl<T: ConnectionLike> RbmqFunctions<T> {
             bodies.push(body.0);
         }
 
-        let mut cmd = redis::cmd("EVALSHA");
-        cmd.arg(&cached_script.send_message_batch)
-            .arg(2)
-            .arg(self.zset_key(qname))
-            .arg(self.rt_channel(qname))
+        let mut invocation = SEND_MESSAGE_BATCH.prepare_invoke();
+        invocation
+            .key(self.zset_key(qname))
+            .key(self.rt_channel(qname))
             .arg(delay_arg)
             .arg(realtime_flag);
-        for (id, body) in ids.iter().zip(bodies.into_iter()) {
-            cmd.arg(id).arg(body);
+        for (id, body) in ids.iter().zip(bodies) {
+            invocation.arg(id).arg(body);
         }
 
-        let _: i64 = cmd
-            .query_async(conn)
+        let _: i64 = invocation
+            .invoke_async(conn)
             .await
             .map_err(map_script_error)?;
         Ok(ids)
@@ -487,7 +406,6 @@ impl<T: ConnectionLike> RbmqFunctions<T> {
         qname: &str,
         hidden: Option<Duration>,
         max_count: u32,
-        cached_script: &CachedScript,
     ) -> RbmqResult<Vec<RbmqMessage<E>>> {
         if max_count == 0 {
             return Ok(Vec::new());
@@ -502,14 +420,12 @@ impl<T: ConnectionLike> RbmqFunctions<T> {
             None => USE_DEFAULT.to_string(),
         };
 
-        let raw: Vec<(String, Vec<u8>, u64, u64, u64)> = redis::cmd("EVALSHA")
-            .arg(&cached_script.receive_message_batch)
-            .arg(1)
-            .arg(self.zset_key(qname))
+        let raw: Vec<(String, Vec<u8>, u64, u64, u64)> = RECEIVE_MESSAGE_BATCH
+            .key(self.zset_key(qname))
             .arg(hidden_arg)
             .arg("false")
             .arg(max_count)
-            .query_async(conn)
+            .invoke_async(conn)
             .await
             .map_err(map_script_error)?;
 
@@ -535,7 +451,6 @@ impl<T: ConnectionLike> RbmqFunctions<T> {
         hidden: Option<Duration>,
         dlq: &str,
         max_receives: u64,
-        cached_script: &CachedScript,
     ) -> RbmqResult<Option<RbmqMessage<E>>> {
         valid_name_format(qname)?;
         valid_name_format(dlq)?;
@@ -554,14 +469,12 @@ impl<T: ConnectionLike> RbmqFunctions<T> {
             None => USE_DEFAULT.to_string(),
         };
 
-        let result: (bool, String, Vec<u8>, u64, u64, u64) = redis::cmd("EVALSHA")
-            .arg(&cached_script.receive_message_or_dlq)
-            .arg(2)
-            .arg(self.zset_key(qname))
-            .arg(self.zset_key(dlq))
+        let result: (bool, String, Vec<u8>, u64, u64, u64) = RECEIVE_MESSAGE_OR_DLQ
+            .key(self.zset_key(qname))
+            .key(self.zset_key(dlq))
             .arg(hidden_arg)
             .arg(max_receives.to_string())
-            .query_async(conn)
+            .invoke_async(conn)
             .await
             .map_err(map_script_error)?;
 
@@ -586,7 +499,6 @@ impl<T: ConnectionLike> RbmqFunctions<T> {
         src: &str,
         msg_id: &str,
         dst: &str,
-        cached_script: &CachedScript,
     ) -> RbmqResult<bool> {
         valid_name_format(src)?;
         valid_name_format(dst)?;
@@ -596,13 +508,11 @@ impl<T: ConnectionLike> RbmqFunctions<T> {
             )));
         }
 
-        let moved: i64 = redis::cmd("EVALSHA")
-            .arg(&cached_script.move_message)
-            .arg(2)
-            .arg(self.zset_key(src))
-            .arg(self.zset_key(dst))
+        let moved: i64 = MOVE_MESSAGE
+            .key(self.zset_key(src))
+            .key(self.zset_key(dst))
             .arg(msg_id)
-            .query_async(conn)
+            .invoke_async(conn)
             .await
             .map_err(map_script_error)?;
         Ok(moved == 1)
@@ -616,7 +526,6 @@ impl<T: ConnectionLike> RbmqFunctions<T> {
         hidden: Option<Duration>,
         delay: Option<Duration>,
         maxsize: Option<i64>,
-        cached_script: &CachedScript,
     ) -> RbmqResult<RbmqQueueAttributes> {
         let vt_arg = match hidden {
             Some(h) => {
@@ -646,21 +555,19 @@ impl<T: ConnectionLike> RbmqFunctions<T> {
             None => String::new(),
         };
 
-        let exists: i64 = redis::cmd("EVALSHA")
-            .arg(&cached_script.set_queue_attributes)
-            .arg(1)
-            .arg(self.cfg_key(qname))
+        let exists: i64 = SET_QUEUE_ATTRIBUTES
+            .key(self.cfg_key(qname))
             .arg(vt_arg)
             .arg(delay_arg)
             .arg(maxsize_arg)
-            .query_async(conn)
+            .invoke_async(conn)
             .await
             .map_err(map_script_error)?;
 
         if exists == 0 {
             return Err(RbmqError::QueueNotFound);
         }
-        self.get_queue_attributes(conn, qname, cached_script).await
+        self.get_queue_attributes(conn, qname).await
     }
 
     /// Mints a 32-char lowercase-hex ID (16 random bytes). Globally unique with overwhelming

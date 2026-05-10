@@ -1,7 +1,6 @@
-use crate::functions::{CachedScript, RbmqFunctions};
+use crate::functions::RbmqFunctions;
 use crate::r#trait::RbmqConnection;
-use crate::types::RedisBytes;
-use crate::types::{RbmqMessage, RbmqOptions, RbmqQueueAttributes};
+use crate::types::{RbmqMessage, RbmqOptions, RbmqQueueAttributes, RedisBytes};
 use crate::RbmqResult;
 use core::convert::TryFrom;
 use redis::RedisError;
@@ -48,7 +47,6 @@ pub struct PoolOptions {
 pub struct PooledRbmq {
     pool: bb8::Pool<RedisConnectionManager>,
     functions: RbmqFunctions<redis::aio::MultiplexedConnection>,
-    scripts: CachedScript,
 }
 
 impl Clone for PooledRbmq {
@@ -60,7 +58,6 @@ impl Clone for PooledRbmq {
                 realtime: self.functions.realtime,
                 conn: PhantomData,
             },
-            scripts: self.scripts.clone(),
         }
     }
 }
@@ -81,21 +78,13 @@ impl PooledRbmq {
             .set_redis_settings(redis_info);
 
         let client = redis::Client::open(conn_info)?;
-
         let manager = RedisConnectionManager::from_client(client)?;
-        let builder = bb8::Pool::builder();
-
-        let mut builder = if let Some(value) = pool_options.max_size {
-            builder.max_size(value)
-        } else {
-            builder
-        };
-
+        let mut builder = bb8::Pool::builder();
+        if let Some(value) = pool_options.max_size {
+            builder = builder.max_size(value);
+        }
         builder = builder.min_idle(pool_options.min_idle);
-
         let pool = builder.build(manager).await?;
-
-        let mut conn = pool.get().await?;
 
         let functions = RbmqFunctions::<redis::aio::MultiplexedConnection> {
             ns: options.ns.clone(),
@@ -103,15 +92,7 @@ impl PooledRbmq {
             conn: PhantomData,
         };
 
-        let scripts = functions.load_scripts(&mut conn).await?;
-
-        drop(conn);
-
-        Ok(PooledRbmq {
-            pool,
-            functions,
-            scripts,
-        })
+        Ok(PooledRbmq { pool, functions })
     }
 
     pub async fn new_with_pool(
@@ -119,23 +100,12 @@ impl PooledRbmq {
         realtime: bool,
         ns: Option<&str>,
     ) -> RbmqResult<PooledRbmq> {
-        let mut conn = pool.get().await?;
-
         let functions = RbmqFunctions::<redis::aio::MultiplexedConnection> {
             ns: ns.unwrap_or("rbmq").to_string(),
             realtime,
             conn: PhantomData,
         };
-
-        let scripts = functions.load_scripts(&mut conn).await?;
-
-        drop(conn);
-
-        Ok(PooledRbmq {
-            pool,
-            functions,
-            scripts,
-        })
+        Ok(PooledRbmq { pool, functions })
     }
 }
 
@@ -147,9 +117,8 @@ impl RbmqConnection for PooledRbmq {
         hidden: Duration,
     ) -> RbmqResult<()> {
         let mut conn = self.pool.get().await?;
-
         self.functions
-            .change_message_visibility(&mut conn, qname, message_id, hidden, &self.scripts)
+            .change_message_visibility(&mut conn, qname, message_id, hidden)
             .await
     }
 
@@ -161,37 +130,28 @@ impl RbmqConnection for PooledRbmq {
         maxsize: Option<i64>,
     ) -> RbmqResult<()> {
         let mut conn = self.pool.get().await?;
-
         self.functions
-            .create_queue(&mut conn, qname, hidden, delay, maxsize, &self.scripts)
+            .create_queue(&mut conn, qname, hidden, delay, maxsize)
             .await
     }
 
     async fn delete_message(&mut self, qname: &str, id: &str) -> RbmqResult<bool> {
         let mut conn = self.pool.get().await?;
-
-        self.functions
-            .delete_message(&mut conn, qname, id, &self.scripts)
-            .await
+        self.functions.delete_message(&mut conn, qname, id).await
     }
+
     async fn delete_queue(&mut self, qname: &str) -> RbmqResult<()> {
         let mut conn = self.pool.get().await?;
-
-        self.functions
-            .delete_queue(&mut conn, qname, &self.scripts)
-            .await
+        self.functions.delete_queue(&mut conn, qname).await
     }
+
     async fn get_queue_attributes(&mut self, qname: &str) -> RbmqResult<RbmqQueueAttributes> {
         let mut conn = self.pool.get().await?;
-
-        self.functions
-            .get_queue_attributes(&mut conn, qname, &self.scripts)
-            .await
+        self.functions.get_queue_attributes(&mut conn, qname).await
     }
 
     async fn list_queues(&mut self) -> RbmqResult<Vec<String>> {
         let mut conn = self.pool.get().await?;
-
         self.functions.list_queues(&mut conn).await
     }
 
@@ -200,10 +160,7 @@ impl RbmqConnection for PooledRbmq {
         qname: &str,
     ) -> RbmqResult<Option<RbmqMessage<E>>> {
         let mut conn = self.pool.get().await?;
-
-        self.functions
-            .pop_message::<E>(&mut conn, qname, &self.scripts)
-            .await
+        self.functions.pop_message::<E>(&mut conn, qname).await
     }
 
     async fn receive_message<E: TryFrom<RedisBytes, Error = Vec<u8>>>(
@@ -212,9 +169,8 @@ impl RbmqConnection for PooledRbmq {
         hidden: Option<Duration>,
     ) -> RbmqResult<Option<RbmqMessage<E>>> {
         let mut conn = self.pool.get().await?;
-
         self.functions
-            .receive_message::<E>(&mut conn, qname, hidden, &self.scripts)
+            .receive_message::<E>(&mut conn, qname, hidden)
             .await
     }
 
@@ -225,9 +181,8 @@ impl RbmqConnection for PooledRbmq {
         delay: Option<Duration>,
     ) -> RbmqResult<String> {
         let mut conn = self.pool.get().await?;
-
         self.functions
-            .send_message(&mut conn, qname, message, delay, &self.scripts)
+            .send_message(&mut conn, qname, message, delay)
             .await
     }
 
@@ -238,9 +193,8 @@ impl RbmqConnection for PooledRbmq {
         delay: Option<Duration>,
     ) -> RbmqResult<Vec<String>> {
         let mut conn = self.pool.get().await?;
-
         self.functions
-            .send_message_batch(&mut conn, qname, messages, delay, &self.scripts)
+            .send_message_batch(&mut conn, qname, messages, delay)
             .await
     }
 
@@ -251,9 +205,8 @@ impl RbmqConnection for PooledRbmq {
         max_count: u32,
     ) -> RbmqResult<Vec<RbmqMessage<E>>> {
         let mut conn = self.pool.get().await?;
-
         self.functions
-            .receive_message_batch::<E>(&mut conn, qname, hidden, max_count, &self.scripts)
+            .receive_message_batch::<E>(&mut conn, qname, hidden, max_count)
             .await
     }
 
@@ -265,16 +218,15 @@ impl RbmqConnection for PooledRbmq {
         maxsize: Option<i64>,
     ) -> RbmqResult<RbmqQueueAttributes> {
         let mut conn = self.pool.get().await?;
-
         self.functions
-            .set_queue_attributes(&mut conn, qname, hidden, delay, maxsize, &self.scripts)
+            .set_queue_attributes(&mut conn, qname, hidden, delay, maxsize)
             .await
     }
 
     async fn move_message(&mut self, src: &str, msg_id: &str, dst: &str) -> RbmqResult<bool> {
         let mut conn = self.pool.get().await?;
         self.functions
-            .move_message(&mut conn, src, msg_id, dst, &self.scripts)
+            .move_message(&mut conn, src, msg_id, dst)
             .await
     }
 
@@ -287,7 +239,7 @@ impl RbmqConnection for PooledRbmq {
     ) -> RbmqResult<Option<RbmqMessage<E>>> {
         let mut conn = self.pool.get().await?;
         self.functions
-            .receive_message_or_dlq::<E>(&mut conn, qname, hidden, dlq, max_receives, &self.scripts)
+            .receive_message_or_dlq::<E>(&mut conn, qname, hidden, dlq, max_receives)
             .await
     }
 }
