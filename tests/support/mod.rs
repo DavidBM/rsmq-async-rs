@@ -92,6 +92,20 @@ fn which_redis_server() -> bool {
         .is_ok()
 }
 
+fn panic_no_redis(addr: &redis::ConnectionAddr, err: &redis::RedisError) -> ! {
+    eprintln!();
+    eprintln!("Could not connect to Redis at {addr}");
+    eprintln!("  {err}");
+    eprintln!();
+    eprintln!("These tests need a running Redis. Pick one:");
+    eprintln!("  docker run -d --rm -p 6379:6379 redis:7");
+    eprintln!("  sudo apt install redis-server   # then tests spawn their own");
+    eprintln!();
+    eprintln!("Override the address with REDIS_URL=host:port if Redis runs elsewhere.");
+    eprintln!();
+    panic!("Redis unreachable at {addr}");
+}
+
 pub struct TestContext {
     #[allow(dead_code)]
     pub server: RedisServer,
@@ -103,23 +117,24 @@ impl TestContext {
     pub fn new() -> TestContext {
         let server = RedisServer::new();
 
+        let addr = server.get_client_addr().clone();
         let conn_info = "redis://localhost"
             .parse::<redis::ConnectionInfo>()
             .unwrap()
-            .set_addr(server.get_client_addr().clone());
+            .set_addr(addr.clone());
         let client = redis::Client::open(conn_info).unwrap();
 
-        let millisecond = Duration::from_millis(1);
+        let attempt_delay = Duration::from_millis(50);
+        let max_attempts = 60; // ~3 seconds total
+        let mut attempts = 0;
         loop {
             match client.get_connection() {
-                Err(err) => {
-                    if err.is_connection_refusal() {
-                        sleep(millisecond);
-                    } else {
-                        panic!("Could not connect: {}", err);
-                    }
-                }
                 Ok(_) => break,
+                Err(err) if err.is_connection_refusal() && attempts < max_attempts => {
+                    attempts += 1;
+                    sleep(attempt_delay);
+                }
+                Err(err) => panic_no_redis(&addr, &err),
             }
         }
         let ns: u64 = rand::rng().random();

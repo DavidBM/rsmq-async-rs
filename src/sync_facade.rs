@@ -175,7 +175,14 @@ impl RsmqConnectionSync for RsmqSync {
     ) -> RsmqResult<RsmqQueueAttributes> {
         self.runner.block_on(async {
             self.functions
-                .set_queue_attributes(&mut self.connection.0, qname, hidden, delay, maxsize, &self.scripts)
+                .set_queue_attributes(
+                    &mut self.connection.0,
+                    qname,
+                    hidden,
+                    delay,
+                    maxsize,
+                    &self.scripts,
+                )
                 .await
         })
     }

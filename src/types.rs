@@ -49,7 +49,7 @@ impl Default for RsmqOptions {
 
 /// A new RSMQ message. You will get this when using pop_message or receive_message methods
 #[derive(Debug, Clone)]
-pub struct RsmqMessage<T: TryFrom<RedisBytes> = String> {
+pub struct RsmqMessage<T = String> {
     /// Message id. Used later for change_message_visibility and delete_message
     pub id: String,
     /// Message content.

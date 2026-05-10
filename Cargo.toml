@@ -1,12 +1,12 @@
 [package]
 name = "rsmq_async"
-version = "16.0.0"
+version = "17.0.0"
 authors = ["David Bonet <webbonet@gmail.com>"]
 edition = "2021"
 license = "MIT"
 description = "Async RSMQ port to rust. RSMQ is a simple redis queue system that works in any redis v2.4+. It contains the same methods as the original one in https://github.com/smrchy/rsmq"
-homepage = "https://crates.io/crates/rsmq_async"
-repository = "https://github.com/Couragium/rsmq-async-rs"
+homepage = "https://github.com/DavidBM/rsmq-async-rs"
+repository = "https://github.com/DavidBM/rsmq-async-rs"
 documentation = "https://docs.rs/rsmq_async/"
 readme = "README.md"
 
@@ -21,14 +21,23 @@ redis = { version = "^1", default-features = false, features = [
     "script",
 ] }
 tokio = { version = "^1", optional = true }
+serde = { version = "^1", optional = true }
+serde_json = { version = "^1", optional = true }
 
 [dev-dependencies]
 net2 = "^0.2"
-tokio = { version = "^1", features = ["rt-multi-thread"] }
+tokio = { version = "^1", features = ["rt-multi-thread", "macros", "time"] }
+serde = { version = "^1", features = ["derive"] }
+serde_json = "^1"
 
 [features]
-default = ["tokio-comp", "sync"]
+default = ["tokio-comp", "sync", "serde"]
 sync = ["tokio"]
 tokio-comp = ["redis/tokio-comp"]
 smol-comp = ["redis/smol-comp"]
 break-js-comp = []
+serde = ["dep:serde", "dep:serde_json"]
+
+[[example]]
+name = "serde_message"
+required-features = ["serde"]

@@ -155,7 +155,14 @@ impl RsmqConnection for Rsmq {
         maxsize: Option<i64>,
     ) -> RsmqResult<RsmqQueueAttributes> {
         self.functions
-            .set_queue_attributes(&mut self.connection.0, qname, hidden, delay, maxsize, &self.scripts)
+            .set_queue_attributes(
+                &mut self.connection.0,
+                qname,
+                hidden,
+                delay,
+                maxsize,
+                &self.scripts,
+            )
             .await
     }
 }

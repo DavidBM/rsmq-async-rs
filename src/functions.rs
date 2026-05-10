@@ -302,20 +302,34 @@ impl<T: ConnectionLike> RsmqFunctions<T> {
 
         #[allow(clippy::type_complexity)]
         let result: (
-            u64, u64,
-            Option<i64>, Option<i64>, Option<i64>,
-            Option<i64>, Option<i64>, Option<i64>, Option<i64>,
-            u64, u64,
+            u64,
+            u64,
+            Option<i64>,
+            Option<i64>,
+            Option<i64>,
+            Option<i64>,
+            Option<i64>,
+            Option<i64>,
+            Option<i64>,
+            u64,
+            u64,
         ) = cached_script
-            .invoke_get_queue_attributes(
-                conn,
-                format!("{}:Q", key),
-                key,
-                USE_MICROSECONDS,
-            )
+            .invoke_get_queue_attributes(conn, format!("{}:Q", key), key, USE_MICROSECONDS)
             .await?;
 
-        let (_time_sec, _time_usec, vt, delay, maxsize, totalrecv, totalsent, created, modified, msgs, hiddenmsgs) = result;
+        let (
+            _time_sec,
+            _time_usec,
+            vt,
+            delay,
+            maxsize,
+            totalrecv,
+            totalsent,
+            created,
+            modified,
+            msgs,
+            hiddenmsgs,
+        ) = result;
 
         if vt.is_none() {
             return Err(RsmqError::QueueNotFound);
@@ -378,7 +392,11 @@ impl<T: ConnectionLike> RsmqFunctions<T> {
             message,
             rc: result.3,
             fr: result.4,
-            sent: result.1.get(0..10).and_then(|s| u64::from_str_radix(s, 36).ok()).unwrap_or(0),
+            sent: result
+                .1
+                .get(0..10)
+                .and_then(|s| u64::from_str_radix(s, 36).ok())
+                .unwrap_or(0),
         }))
     }
 
@@ -418,7 +436,11 @@ impl<T: ConnectionLike> RsmqFunctions<T> {
             message,
             rc: result.3,
             fr: result.4,
-            sent: result.1.get(0..10).and_then(|s| u64::from_str_radix(s, 36).ok()).unwrap_or(0),
+            sent: result
+                .1
+                .get(0..10)
+                .and_then(|s| u64::from_str_radix(s, 36).ok())
+                .unwrap_or(0),
         }))
     }
 
@@ -538,7 +560,10 @@ impl<T: ConnectionLike> RsmqFunctions<T> {
                     return Err(error);
                 }
             }
-            pipe.cmd("HSET").arg(&queue_name).arg("maxsize").arg(maxsize);
+            pipe.cmd("HSET")
+                .arg(&queue_name)
+                .arg("maxsize")
+                .arg(maxsize);
         }
 
         pipe.query_async::<()>(conn).await?;
@@ -596,8 +621,7 @@ impl<T: ConnectionLike> RsmqFunctions<T> {
     }
 
     fn make_id(len: usize) -> RsmqResult<String> {
-        const POSSIBLE: &[u8] =
-            b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
+        const POSSIBLE: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
         let mut rng = rand::rng();
         let mut id = String::with_capacity(len);
         for _ in 0..len {

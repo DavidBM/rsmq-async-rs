@@ -1,173 +1,89 @@
 //! # RSMQ in async Rust
 //!
-//! RSMQ port to async rust. RSMQ is a simple redis queue system that works in any redis v2.6+. It contains the same
-//! methods as the original one in [https://github.com/smrchy/rsmq](https://github.com/smrchy/rsmq)
+//! Async Rust port of [RSMQ](https://github.com/smrchy/rsmq) — a lightweight message queue
+//! built on Redis sorted sets and atomic Lua scripts. No extra brokers, just Redis. Wire-compatible
+//! with the original JavaScript implementation, so producers and consumers can mix languages.
 //!
-//! [![Crates.io](https://img.shields.io/crates/v/rsmq_async)](https://crates.io/crates/rsmq_async)
-//! [![Crates.io](https://img.shields.io/crates/l/rsmq_async)](https://choosealicense.com/licenses/mit/)
-//! [![dependency status](https://deps.rs/crate/rsmq_async/4.0.0/status.svg)](https://deps.rs/crate/rsmq_async)
-//! [![Docs](https://img.shields.io/badge/docs-latest-blue.svg?style=flat-square)](https://docs.rs/rsmq_async)
+//! See the [README](https://github.com/DavidBM/rsmq-async-rs) for the full guide and examples.
 //!
-//! ## Traits
+//! ## Quick start
 //!
-//! This library provides two core traits for interacting with Redis message queues:
+//! ```no_run
+//! use rsmq_async::{Rsmq, RsmqConnection, RsmqError};
 //!
-//! - [`RsmqConnection`]: The async trait that defines all queue operations. Must be imported with `use rsmq_async::RsmqConnection;`
-//! - [`RsmqConnectionSync`]: The synchronous version of the trait, available with the "sync" feature. Must be imported with `use rsmq_async::RsmqConnectionSync;`
+//! # async fn _example() -> Result<(), RsmqError> {
+//! let mut rsmq = Rsmq::new(Default::default()).await?;
+//!
+//! rsmq.create_queue("jobs", None, None, None).await?;
+//! rsmq.send_message("jobs", "hello", None).await?;
+//!
+//! if let Some(msg) = rsmq.receive_message::<String>("jobs", None).await? {
+//!     // ...process msg.message...
+//!     rsmq.delete_message("jobs", &msg.id).await?;
+//! }
+//! # Ok(())
+//! # }
+//! ```
+//!
+//! Always call [`RsmqConnection::delete_message`] after a successful receive — that's what
+//! confirms delivery. Otherwise the message becomes visible again after the queue's `vt`.
 //!
 //! ## Implementations
 //!
-//! Three main implementations are provided:
+//! All three implement the same [`RsmqConnection`] trait, so write code against the trait
+//! to stay implementation-agnostic.
 //!
-//! - [`Rsmq`]: The preferred implementation using a multiplexed Redis connection
-//! - [`PooledRsmq`]: Uses a connection pool for large messages
-//! - [`RsmqSync`]: A synchronous wrapper (requires "sync" feature)
+//! - [`Rsmq`] — multiplexed connection. **Start here.** Right for almost all workloads.
+//! - [`PooledRsmq`] — connection pool. Use for large payloads where a slow op would block others.
+//! - [`RsmqSync`] — sync wrapper for non-async contexts (requires the `sync` feature).
 //!
-//! ## Example
+//! ## Realtime notifications
 //!
-//! ```rust
-//! # use rsmq_async::RsmqError; use rsmq_async::{Rsmq, RsmqConnection};
+//! Set `realtime: true` in [`RsmqOptions`] and RSMQ will `PUBLISH` to `{ns}:rt:{qname}` on every
+//! `send_message`. Subscribe with `redis-rs` to wake workers immediately instead of polling.
+//! Use a single subscriber per queue — multiple workers racing on `SUBSCRIBE` is a common mistake.
 //!
-//! # async fn it_works() -> Result<(), RsmqError> { let mut rsmq = Rsmq::new(Default::default()).await?;
+//! ## Custom message types
 //!
-//! let message = rsmq.receive_message::<String>("myqueue", None).await?;
+//! [`Rsmq::send_message`] takes any `Into<RedisBytes>`; [`Rsmq::receive_message`] / [`Rsmq::pop_message`]
+//! take any `TryFrom<RedisBytes, Error = Vec<u8>>`. Built-in impls cover `String`, `&str`, `Vec<u8>`,
+//! and `&[u8]`. For your own types, implement the conversions:
 //!
-//! if let Some(message) = message { rsmq.delete_message("myqueue", &message.id).await?; }
+//! ```no_run
+//! use rsmq_async::RedisBytes;
 //!
-//! # Ok(())
-//! # }
+//! struct MyPayload(Vec<u8>);
 //!
-//! ```
-//!
-//! ## Installation
-//!
-//! Check [https://crates.io/crates/rsmq_async](https://crates.io/crates/rsmq_async)
-//!
-//! ## Example
-//!
-//! ```rust
-//!
-//! use rsmq_async::{Rsmq, RsmqConnection};
-//!
-//! async fn it_works() { let mut rsmq = Rsmq::new(Default::default())
-//!         .await
-//!         .expect("connection failed");
-//!
-//!     rsmq.create_queue("myqueue", None, None, None)
-//!         .await
-//!         .expect("failed to create queue");
-//!
-//!     rsmq.send_message("myqueue", "testmessage", None)
-//!         .await
-//!         .expect("failed to send message");
-//!
-//!     let message = rsmq
-//!         .receive_message::<String>("myqueue", None)
-//!         .await
-//!         .expect("cannot receive message");
-//!
-//!     if let Some(message) = message { rsmq.delete_message("myqueue", &message.id).await; } }
-//!
-//! ```
-//!
-//! ## Realtime
-//!
-//! When initializing RSMQ you can enable the realtime PUBLISH for new messages. On every new message that gets sent to
-//! RSQM via `sendMessage` a Redis PUBLISH will be issued to `{rsmq.ns}:rt:{qname}`. So, you can subscribe to it using
-//! redis-rs library directly.
-//!
-//! ### How to use the realtime option
-//!
-//! Besides the PUBLISH redis command when a new message is sent to RSMQ nothing else will happen. Your app could use
-//! the Redis SUBSCRIBE command to be notified of new messages and issue a `receiveMessage` then. However make sure not
-//! to listen with multiple workers for new messages with SUBSCRIBE to prevent multiple simultaneous `receiveMessage`
-//! calls.
-//!
-//! ## Time Precision
-//!
-//! By default this library keeps compatibility with the JS counterpart. If you require
-//! sub-second precision or are sending many messages very close together and require to
-//! keep track of them with more precision than one second, you can enable the feature
-//! `break-js-comp` like this on your `Cargo.toml`
-//!
-//! ```toml
-//! rsmq_async = { version = "11", features = [ "break-js-comp" ] }
-//! ```
-//!
-//! ## Guarantees
-//!
-//! If you want to implement "at least one delivery" guarantee, you need to receive the messages using "receive_message"
-//! and then, once the message is successfully processed, delete it with "delete_message".
-//!
-//! ## Connection Pool
-//!
-//! If you want to use a connection pool, just use [`PooledRsmq`] instad of Rsmq. It implements the RsmqConnection trait
-//! as the normal Rsmq.
-//!
-//! If you want to accept any of both implementation, just accept the trait [`RsmqConnection`]
-//!
-//! ## Executor compatibility
-//!
-//! By default this library enables Tokio compatibility. If you want to use the smol runtime instead,
-//! you can change the `Cargo.toml` definition to
-//!
-//! ```toml
-//!
-//! rsmq_async = { version = "15", default-features = false, features = ["smol-comp"] }
-//!
-//! ```
-//!
-//! Where `"smol-comp"` can also be `"tokio-comp"`.
-//!
-//! ## `Rsmq` vs `PooledRsmq`
-//!
-//! In almost all workloads you might prefer the `Rsmq` object, as it works with a multiplexed connection.
-//!
-//! For specific workloads, where you might be sending a lof of data (images, documents, big blobs) you might prefer to
-//! use the `PooledRsmq` and configure it with `PoolOptions`.
-//!
-//! They both use the `redis::aio::MultiplexedConnection`, but the pooled connection can be configured to spawn several
-//! of those, so one operation won't block the other.
-//!
-//! ## Response types
-//!
-//! There are 3 functions that take generic types:
-//!
-//! - `pop_message` and `receive_message`: Where the type for the received message is `RsmqMessage<E>` where `E:
-//!   TryFrom<RedisBytes, Error = Vec<u8>>`. So, If you have custom type, you can implement the trait
-//!   `TryFrom<RedisBytes>` for `YourCustomType` and use it like: `rsmq.receive_message::<YourCustomType>
-//!   ("myqueue", None)`. Implementations are provided for `String` and `Vec<u8>`.
-//! - `send_message` where the message to send needs to implement `Into<RedisBytes> + Send`. So you will need to
-//!   implement the trait for your type. You can check the implementations for the type RedisBytes and see how we did
-//!   it. Implementations are provided for `String`, `&str` and `Vec<u8>`.
-//!
-//! All this is because strings in Rust are very convenient to use for json messages, so always returning a `Vec<u8>`
-//! may not be the most ergonomic solution. But at the same time, we can just add some already made implementations for
-//! it and you can just use it with your type or, if you are sending, let's say, images, just use the method like:
-//! `rsmq.receive_message::<Vec<u8>>("myqueue", None)` and transform it later to your type. (Or just implement the
-//! `TryFrom<RedisBytes>` for your type and the transformation will be automatic.)
-//!
-//! ### Example for implementing a custom type
-//!
-//! ```rust,ignore
-//!
-//! impl TryFrom<RedisBytes> for String {
-//!
-//!     type Error = Vec<u8>; // Always set Error as Vec<u8>;
-//!
-//!     fn try_from(bytes: RedisBytes) -> Result<Self, Self::Error> {
-//!         String::from_utf8(bytes.0).map_err(|e| e.into_bytes())
-//!     }
-//!
+//! impl From<MyPayload> for RedisBytes {
+//!     fn from(p: MyPayload) -> RedisBytes { RedisBytes::from(p.0) }
 //! }
 //!
+//! impl TryFrom<RedisBytes> for MyPayload {
+//!     type Error = Vec<u8>;
+//!     fn try_from(b: RedisBytes) -> Result<Self, Vec<u8>> {
+//!         Ok(MyPayload(b.into_bytes()))
+//!     }
+//! }
 //! ```
+//!
+//! ## Cargo features
+//!
+//! - `tokio-comp` *(default)* — Tokio runtime support.
+//! - `smol-comp` — smol runtime support. Disable defaults to use it standalone.
+//! - `sync` *(default)* — enables [`RsmqSync`] and [`RsmqConnectionSync`].
+//! - `serde` *(default)* — enables [`Json<T>`](Json), [`RsmqJsonExt`], and the
+//!   `RsmqError::JsonError` variant. Pulls in `serde` and `serde_json`.
+//! - `break-js-comp` — full microsecond-precision scores. Off by default to stay wire-compatible
+//!   with the JS library; **don't mix** a `break-js-comp` Rust producer with a JS server on the
+//!   same queue.
 //!
 
 #![forbid(unsafe_code)]
 
 mod error;
 mod functions;
+#[cfg(feature = "serde")]
+mod json;
 mod multiplexed_facade;
 mod pooled_facade;
 #[cfg(feature = "sync")]
@@ -177,6 +93,10 @@ mod types;
 
 pub use error::RsmqError;
 pub use error::RsmqResult;
+#[cfg(all(feature = "serde", feature = "sync"))]
+pub use json::RsmqJsonExtSync;
+#[cfg(feature = "serde")]
+pub use json::{Json, RsmqJsonExt};
 pub use multiplexed_facade::Rsmq;
 pub use pooled_facade::{PoolOptions, PooledRsmq, RedisConnectionManager};
 pub use r#trait::RsmqConnection;

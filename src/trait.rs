@@ -99,6 +99,7 @@ pub trait RsmqConnection {
     ) -> impl Future<Output = RsmqResult<RsmqQueueAttributes>> + Send;
 }
 
+#[cfg(feature = "sync")]
 pub trait RsmqConnectionSync {
     /// Change the hidden time of a already sent message.
     ///

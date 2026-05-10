@@ -43,6 +43,16 @@ pub enum RsmqError {
     CannotDecodeMessage(Vec<u8>),
     #[error("Cannot start tokio runtime for sync facade")]
     TokioStart(Different<std::io::Error>),
+    #[cfg(feature = "serde")]
+    #[error("JSON serialization or deserialization error: `{0:?}`")]
+    JsonError(Different<serde_json::Error>),
+}
+
+#[cfg(feature = "serde")]
+impl From<serde_json::Error> for RsmqError {
+    fn from(err: serde_json::Error) -> Self {
+        RsmqError::JsonError(Different(err))
+    }
 }
 
 #[derive(Debug)]

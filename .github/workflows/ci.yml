@@ -1,44 +1,71 @@
-name: Run tests
+name: CI
 
 on:
   push:
-    branches:
-      - master
+    branches: [master]
   pull_request:
-    branches:
-      - master
+    branches: [master]
 
 jobs:
-  build:
+  test:
     runs-on: ubuntu-latest
 
+    services:
+      redis:
+        image: redis:7
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    strategy:
+      fail-fast: false
+      matrix:
+        features:
+          - "tokio-comp,sync,serde"
+          - "tokio-comp,sync,serde,break-js-comp"
+          - "tokio-comp,sync"
+
     steps:
-    - name: Git checkout
-      uses: actions/checkout@v1
-    
-    - name: Install Redis server
-      run: sudo apt install redis-server
+      - uses: actions/checkout@v4
 
-    - name: Install Rust toolchain
-      uses: actions-rs/toolchain@v1
-      with:
-        profile: minimal
-        toolchain: stable
-        components: rustfmt, clippy
-        override: true
+      - uses: dtolnay/rust-toolchain@stable
 
-    - name: Cargo Build
-      uses: actions-rs/cargo@v1
-      with:
-        command: build
+      - uses: Swatinem/rust-cache@v2
 
-    - name: Cargo Fmt Check
-      uses: actions-rs/cargo@v1
-      with:
-        command: fmt
-        args: --all -- --check
+      - name: Build
+        run: cargo build --no-default-features --features "${{ matrix.features }}"
 
-    - name: Cargo Test
-      uses: actions-rs/cargo@v1
-      with:
-        command: test
+      - name: Test
+        run: cargo test --no-default-features --features "${{ matrix.features }}" -- --test-threads=1
+        env:
+          REDIS_URL: 127.0.0.1:6379
+
+  build-smol:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Build (smol-comp)
+        run: cargo build --no-default-features --features smol-comp
+
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Cargo fmt
+        run: cargo fmt --all -- --check
+
+      - name: Clippy
+        run: cargo clippy --all-targets --all-features -- -D warnings

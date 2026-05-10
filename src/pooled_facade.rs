@@ -180,7 +180,9 @@ impl RsmqConnection for PooledRsmq {
     async fn get_queue_attributes(&mut self, qname: &str) -> RsmqResult<RsmqQueueAttributes> {
         let mut conn = self.pool.get().await?;
 
-        self.functions.get_queue_attributes(&mut conn, qname, &self.scripts).await
+        self.functions
+            .get_queue_attributes(&mut conn, qname, &self.scripts)
+            .await
     }
 
     async fn list_queues(&mut self) -> RsmqResult<Vec<String>> {
