@@ -7,20 +7,20 @@
 //!
 //!     cargo run --example long_running_heartbeat
 
-use rsmq_async::{Rsmq, RsmqConnection, RsmqError};
+use rbmq::{Rbmq, RbmqConnection, RbmqError};
 use std::time::Duration;
 
 #[tokio::main]
-async fn main() -> Result<(), RsmqError> {
-    let mut rsmq = Rsmq::new(Default::default()).await?;
+async fn main() -> Result<(), RbmqError> {
+    let mut rbmq = Rbmq::new(Default::default()).await?;
     let qname = "example_heartbeat";
 
-    let _ = rsmq.delete_queue(qname).await;
-    rsmq.create_queue(qname, Some(Duration::from_secs(5)), None, None)
+    let _ = rbmq.delete_queue(qname).await;
+    rbmq.create_queue(qname, Some(Duration::from_secs(5)), None, None)
         .await?;
-    rsmq.send_message(qname, "long-job", None).await?;
+    rbmq.send_message(qname, "long-job", None).await?;
 
-    let msg = rsmq
+    let msg = rbmq
         .receive_message::<String>(qname, None)
         .await?
         .expect("message should be present");
@@ -40,14 +40,14 @@ async fn main() -> Result<(), RsmqError> {
             _ = &mut work => break,
             _ = ticker.tick() => {
                 println!("heartbeat: extending visibility by {extend_to:?}");
-                rsmq.change_message_visibility(qname, &msg.id, extend_to).await?;
+                rbmq.change_message_visibility(qname, &msg.id, extend_to).await?;
             }
         }
     }
 
     println!("done — deleting {}", msg.id);
-    rsmq.delete_message(qname, &msg.id).await?;
+    rbmq.delete_message(qname, &msg.id).await?;
 
-    rsmq.delete_queue(qname).await?;
+    rbmq.delete_queue(qname).await?;
     Ok(())
 }

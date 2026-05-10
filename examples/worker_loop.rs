@@ -9,27 +9,27 @@
 //!
 //!     cargo run --example worker_loop
 
-use rsmq_async::{Rsmq, RsmqConnection, RsmqError};
+use rbmq::{Rbmq, RbmqConnection, RbmqError};
 use std::time::Duration;
 
 #[tokio::main]
-async fn main() -> Result<(), RsmqError> {
-    let mut rsmq = Rsmq::new(Default::default()).await?;
+async fn main() -> Result<(), RbmqError> {
+    let mut rbmq = Rbmq::new(Default::default()).await?;
     let qname = "example_worker_loop";
 
-    let _ = rsmq.delete_queue(qname).await;
-    rsmq.create_queue(qname, Some(Duration::from_secs(30)), None, None)
+    let _ = rbmq.delete_queue(qname).await;
+    rbmq.create_queue(qname, Some(Duration::from_secs(30)), None, None)
         .await?;
 
     for i in 0..5 {
-        rsmq.send_message(qname, format!("job-{i}"), None).await?;
+        rbmq.send_message(qname, format!("job-{i}"), None).await?;
     }
 
     loop {
-        match rsmq.receive_message::<String>(qname, None).await? {
+        match rbmq.receive_message::<String>(qname, None).await? {
             Some(msg) => {
                 println!("processing {} (received {} time(s))", msg.message, msg.rc);
-                rsmq.delete_message(qname, &msg.id).await?;
+                rbmq.delete_message(qname, &msg.id).await?;
             }
             None => {
                 println!("queue drained");
@@ -38,6 +38,6 @@ async fn main() -> Result<(), RsmqError> {
         }
     }
 
-    rsmq.delete_queue(qname).await?;
+    rbmq.delete_queue(qname).await?;
     Ok(())
 }

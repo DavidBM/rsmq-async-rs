@@ -1,35 +1,35 @@
 //! Optional `serde`/`serde_json` integration. Two ways to ship typed messages:
 //!
 //! - [`Json<T>`] — wrapper that JSON-encodes on send and decodes on receive, plugged into the
-//!   existing [`RsmqConnection::send_message`] / [`RsmqConnection::receive_message`] APIs.
-//! - [`RsmqJsonExt`] — extension trait adding `send_json` / `receive_json` / `pop_json`
-//!   methods directly on any [`RsmqConnection`]. Returns proper `Result` on serde errors.
+//!   existing [`RbmqConnection::send_message`] / [`RbmqConnection::receive_message`] APIs.
+//! - [`RbmqJsonExt`] — extension trait adding `send_json` / `receive_json` / `pop_json`
+//!   methods directly on any [`RbmqConnection`]. Returns proper `Result` on serde errors.
 //!
 //! Both require the `serde` Cargo feature.
 
 use crate::types::RedisBytes;
-use crate::{RsmqConnection, RsmqMessage, RsmqResult};
+use crate::{RbmqConnection, RbmqMessage, RbmqResult};
 use core::convert::TryFrom;
 use serde::{de::DeserializeOwned, Serialize};
 use std::future::Future;
 use std::time::Duration;
 
 /// Newtype wrapping a `T` so it can be sent and received as JSON through the existing
-/// [`RsmqConnection`] API.
+/// [`RbmqConnection`] API.
 ///
 /// ```no_run
-/// # use rsmq_async::{Json, Rsmq, RsmqConnection, RsmqError};
+/// # use rbmq::{Json, Rbmq, RbmqConnection, RbmqError};
 /// # use serde::{Serialize, Deserialize};
 /// #[derive(Serialize, Deserialize)]
 /// struct Job { name: String }
 ///
-/// # async fn _example() -> Result<(), RsmqError> {
-/// let mut rsmq = Rsmq::new(Default::default()).await?;
-/// rsmq.send_message("jobs", Json(Job { name: "hi".into() }), None).await?;
+/// # async fn _example() -> Result<(), RbmqError> {
+/// let mut rbmq = Rbmq::new(Default::default()).await?;
+/// rbmq.send_message("jobs", Json(Job { name: "hi".into() }), None).await?;
 ///
-/// if let Some(msg) = rsmq.receive_message::<Json<Job>>("jobs", None).await? {
+/// if let Some(msg) = rbmq.receive_message::<Json<Job>>("jobs", None).await? {
 ///     println!("{}", msg.message.0.name);
-///     rsmq.delete_message("jobs", &msg.id).await?;
+///     rbmq.delete_message("jobs", &msg.id).await?;
 /// }
 /// # Ok(()) }
 /// ```
@@ -38,7 +38,7 @@ use std::time::Duration;
 ///
 /// `From<Json<T>> for RedisBytes` panics if `serde_json::to_vec` fails — only possible for
 /// values that aren't representable as JSON (maps with non-string keys, NaN floats, custom
-/// `Serialize` impls that error). For fallible serialization use [`RsmqJsonExt::send_json`]
+/// `Serialize` impls that error). For fallible serialization use [`RbmqJsonExt::send_json`]
 /// instead, which surfaces the error as `Err`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Json<T>(pub T);
@@ -46,7 +46,7 @@ pub struct Json<T>(pub T);
 impl<T: Serialize> From<Json<T>> for RedisBytes {
     fn from(json: Json<T>) -> RedisBytes {
         let bytes = serde_json::to_vec(&json.0).expect(
-            "Json<T> -> RedisBytes failed; use RsmqJsonExt::send_json for fallible serialization",
+            "Json<T> -> RedisBytes failed; use RbmqJsonExt::send_json for fallible serialization",
         );
         RedisBytes::from(bytes)
     }
@@ -64,52 +64,52 @@ impl<T: DeserializeOwned> TryFrom<RedisBytes> for Json<T> {
     }
 }
 
-/// Extension trait adding `send_json` / `receive_json` / `pop_json` to any [`RsmqConnection`].
+/// Extension trait adding `send_json` / `receive_json` / `pop_json` to any [`RbmqConnection`].
 ///
-/// Surfaces serde errors as [`RsmqError::JsonError`](crate::RsmqError::JsonError), unlike the
+/// Surfaces serde errors as [`RbmqError::JsonError`](crate::RbmqError::JsonError), unlike the
 /// [`Json<T>`] wrapper whose `TryFrom` impl drops the error in favor of returning the raw bytes.
 ///
 /// ```no_run
-/// # use rsmq_async::{Rsmq, RsmqConnection, RsmqError, RsmqJsonExt};
+/// # use rbmq::{Rbmq, RbmqConnection, RbmqError, RbmqJsonExt};
 /// # use serde::{Serialize, Deserialize};
 /// #[derive(Serialize, Deserialize)]
 /// struct Job { id: u64 }
 ///
-/// # async fn _example() -> Result<(), RsmqError> {
-/// let mut rsmq = Rsmq::new(Default::default()).await?;
-/// rsmq.send_json("jobs", &Job { id: 1 }, None).await?;
-/// if let Some(msg) = rsmq.receive_json::<Job>("jobs", None).await? {
-///     rsmq.delete_message("jobs", &msg.id).await?;
+/// # async fn _example() -> Result<(), RbmqError> {
+/// let mut rbmq = Rbmq::new(Default::default()).await?;
+/// rbmq.send_json("jobs", &Job { id: 1 }, None).await?;
+/// if let Some(msg) = rbmq.receive_json::<Job>("jobs", None).await? {
+///     rbmq.delete_message("jobs", &msg.id).await?;
 /// }
 /// # Ok(()) }
 /// ```
-pub trait RsmqJsonExt: RsmqConnection {
+pub trait RbmqJsonExt: RbmqConnection {
     fn send_json<T: Serialize + ?Sized>(
         &mut self,
         qname: &str,
         message: &T,
         delay: Option<Duration>,
-    ) -> impl Future<Output = RsmqResult<String>> + Send;
+    ) -> impl Future<Output = RbmqResult<String>> + Send;
 
     fn receive_json<T: DeserializeOwned>(
         &mut self,
         qname: &str,
         hidden: Option<Duration>,
-    ) -> impl Future<Output = RsmqResult<Option<RsmqMessage<T>>>> + Send;
+    ) -> impl Future<Output = RbmqResult<Option<RbmqMessage<T>>>> + Send;
 
     fn pop_json<T: DeserializeOwned>(
         &mut self,
         qname: &str,
-    ) -> impl Future<Output = RsmqResult<Option<RsmqMessage<T>>>> + Send;
+    ) -> impl Future<Output = RbmqResult<Option<RbmqMessage<T>>>> + Send;
 }
 
-impl<C: RsmqConnection + Send> RsmqJsonExt for C {
+impl<C: RbmqConnection + Send> RbmqJsonExt for C {
     fn send_json<T: Serialize + ?Sized>(
         &mut self,
         qname: &str,
         message: &T,
         delay: Option<Duration>,
-    ) -> impl Future<Output = RsmqResult<String>> + Send {
+    ) -> impl Future<Output = RbmqResult<String>> + Send {
         let serialized = serde_json::to_vec(message);
         async move {
             let bytes = serialized?;
@@ -121,26 +121,26 @@ impl<C: RsmqConnection + Send> RsmqJsonExt for C {
         &mut self,
         qname: &str,
         hidden: Option<Duration>,
-    ) -> RsmqResult<Option<RsmqMessage<T>>> {
+    ) -> RbmqResult<Option<RbmqMessage<T>>> {
         decode_json(self.receive_message::<Vec<u8>>(qname, hidden).await?)
     }
 
     async fn pop_json<T: DeserializeOwned>(
         &mut self,
         qname: &str,
-    ) -> RsmqResult<Option<RsmqMessage<T>>> {
+    ) -> RbmqResult<Option<RbmqMessage<T>>> {
         decode_json(self.pop_message::<Vec<u8>>(qname).await?)
     }
 }
 
 fn decode_json<T: DeserializeOwned>(
-    raw: Option<RsmqMessage<Vec<u8>>>,
-) -> RsmqResult<Option<RsmqMessage<T>>> {
+    raw: Option<RbmqMessage<Vec<u8>>>,
+) -> RbmqResult<Option<RbmqMessage<T>>> {
     match raw {
         None => Ok(None),
         Some(msg) => {
             let message: T = serde_json::from_slice(&msg.message)?;
-            Ok(Some(RsmqMessage {
+            Ok(Some(RbmqMessage {
                 id: msg.id,
                 message,
                 rc: msg.rc,
@@ -154,40 +154,40 @@ fn decode_json<T: DeserializeOwned>(
 #[cfg(feature = "sync")]
 mod sync {
     use super::decode_json;
-    use crate::r#trait::RsmqConnectionSync;
-    use crate::{RsmqMessage, RsmqResult};
+    use crate::r#trait::RbmqConnectionSync;
+    use crate::{RbmqMessage, RbmqResult};
     use serde::{de::DeserializeOwned, Serialize};
     use std::time::Duration;
 
-    /// Sync counterpart of [`RsmqJsonExt`](super::RsmqJsonExt). Available with both `serde` and
+    /// Sync counterpart of [`RbmqJsonExt`](super::RbmqJsonExt). Available with both `serde` and
     /// `sync` features.
-    pub trait RsmqJsonExtSync: RsmqConnectionSync {
+    pub trait RbmqJsonExtSync: RbmqConnectionSync {
         fn send_json<T: Serialize + ?Sized>(
             &mut self,
             qname: &str,
             message: &T,
             delay: Option<Duration>,
-        ) -> RsmqResult<String>;
+        ) -> RbmqResult<String>;
 
         fn receive_json<T: DeserializeOwned>(
             &mut self,
             qname: &str,
             hidden: Option<Duration>,
-        ) -> RsmqResult<Option<RsmqMessage<T>>>;
+        ) -> RbmqResult<Option<RbmqMessage<T>>>;
 
         fn pop_json<T: DeserializeOwned>(
             &mut self,
             qname: &str,
-        ) -> RsmqResult<Option<RsmqMessage<T>>>;
+        ) -> RbmqResult<Option<RbmqMessage<T>>>;
     }
 
-    impl<C: RsmqConnectionSync> RsmqJsonExtSync for C {
+    impl<C: RbmqConnectionSync> RbmqJsonExtSync for C {
         fn send_json<T: Serialize + ?Sized>(
             &mut self,
             qname: &str,
             message: &T,
             delay: Option<Duration>,
-        ) -> RsmqResult<String> {
+        ) -> RbmqResult<String> {
             let bytes = serde_json::to_vec(message)?;
             self.send_message(qname, bytes, delay)
         }
@@ -196,18 +196,18 @@ mod sync {
             &mut self,
             qname: &str,
             hidden: Option<Duration>,
-        ) -> RsmqResult<Option<RsmqMessage<T>>> {
+        ) -> RbmqResult<Option<RbmqMessage<T>>> {
             decode_json(self.receive_message::<Vec<u8>>(qname, hidden)?)
         }
 
         fn pop_json<T: DeserializeOwned>(
             &mut self,
             qname: &str,
-        ) -> RsmqResult<Option<RsmqMessage<T>>> {
+        ) -> RbmqResult<Option<RbmqMessage<T>>> {
             decode_json(self.pop_message::<Vec<u8>>(qname)?)
         }
     }
 }
 
 #[cfg(feature = "sync")]
-pub use sync::RsmqJsonExtSync;
+pub use sync::RbmqJsonExtSync;

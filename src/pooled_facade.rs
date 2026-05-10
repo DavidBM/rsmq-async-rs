@@ -1,8 +1,8 @@
-use crate::functions::{CachedScript, RsmqFunctions};
-use crate::r#trait::RsmqConnection;
+use crate::functions::{CachedScript, RbmqFunctions};
+use crate::r#trait::RbmqConnection;
 use crate::types::RedisBytes;
-use crate::types::{RsmqMessage, RsmqOptions, RsmqQueueAttributes};
-use crate::RsmqResult;
+use crate::types::{RbmqMessage, RbmqOptions, RbmqQueueAttributes};
+use crate::RbmqResult;
 use core::convert::TryFrom;
 use redis::RedisError;
 use std::marker::PhantomData;
@@ -45,17 +45,17 @@ pub struct PoolOptions {
     pub min_idle: Option<u32>,
 }
 
-pub struct PooledRsmq {
+pub struct PooledRbmq {
     pool: bb8::Pool<RedisConnectionManager>,
-    functions: RsmqFunctions<redis::aio::MultiplexedConnection>,
+    functions: RbmqFunctions<redis::aio::MultiplexedConnection>,
     scripts: CachedScript,
 }
 
-impl Clone for PooledRsmq {
+impl Clone for PooledRbmq {
     fn clone(&self) -> Self {
-        PooledRsmq {
+        PooledRbmq {
             pool: self.pool.clone(),
-            functions: RsmqFunctions {
+            functions: RbmqFunctions {
                 ns: self.functions.ns.clone(),
                 realtime: self.functions.realtime,
                 conn: PhantomData,
@@ -65,8 +65,8 @@ impl Clone for PooledRsmq {
     }
 }
 
-impl PooledRsmq {
-    pub async fn new(options: RsmqOptions, pool_options: PoolOptions) -> RsmqResult<PooledRsmq> {
+impl PooledRbmq {
+    pub async fn new(options: RbmqOptions, pool_options: PoolOptions) -> RbmqResult<PooledRbmq> {
         let mut redis_info = redis::RedisConnectionInfo::default()
             .set_db(options.db.into())
             .set_protocol(options.protocol);
@@ -97,7 +97,7 @@ impl PooledRsmq {
 
         let mut conn = pool.get().await?;
 
-        let functions = RsmqFunctions::<redis::aio::MultiplexedConnection> {
+        let functions = RbmqFunctions::<redis::aio::MultiplexedConnection> {
             ns: options.ns.clone(),
             realtime: options.realtime,
             conn: PhantomData,
@@ -107,7 +107,7 @@ impl PooledRsmq {
 
         drop(conn);
 
-        Ok(PooledRsmq {
+        Ok(PooledRbmq {
             pool,
             functions,
             scripts,
@@ -118,11 +118,11 @@ impl PooledRsmq {
         pool: bb8::Pool<RedisConnectionManager>,
         realtime: bool,
         ns: Option<&str>,
-    ) -> RsmqResult<PooledRsmq> {
+    ) -> RbmqResult<PooledRbmq> {
         let mut conn = pool.get().await?;
 
-        let functions = RsmqFunctions::<redis::aio::MultiplexedConnection> {
-            ns: ns.unwrap_or("rsmq").to_string(),
+        let functions = RbmqFunctions::<redis::aio::MultiplexedConnection> {
+            ns: ns.unwrap_or("rbmq").to_string(),
             realtime,
             conn: PhantomData,
         };
@@ -131,7 +131,7 @@ impl PooledRsmq {
 
         drop(conn);
 
-        Ok(PooledRsmq {
+        Ok(PooledRbmq {
             pool,
             functions,
             scripts,
@@ -139,13 +139,13 @@ impl PooledRsmq {
     }
 }
 
-impl RsmqConnection for PooledRsmq {
+impl RbmqConnection for PooledRbmq {
     async fn change_message_visibility(
         &mut self,
         qname: &str,
         message_id: &str,
         hidden: Duration,
-    ) -> RsmqResult<()> {
+    ) -> RbmqResult<()> {
         let mut conn = self.pool.get().await?;
 
         self.functions
@@ -159,7 +159,7 @@ impl RsmqConnection for PooledRsmq {
         hidden: Option<Duration>,
         delay: Option<Duration>,
         maxsize: Option<i64>,
-    ) -> RsmqResult<()> {
+    ) -> RbmqResult<()> {
         let mut conn = self.pool.get().await?;
 
         self.functions
@@ -167,17 +167,17 @@ impl RsmqConnection for PooledRsmq {
             .await
     }
 
-    async fn delete_message(&mut self, qname: &str, id: &str) -> RsmqResult<bool> {
+    async fn delete_message(&mut self, qname: &str, id: &str) -> RbmqResult<bool> {
         let mut conn = self.pool.get().await?;
 
         self.functions.delete_message(&mut conn, qname, id).await
     }
-    async fn delete_queue(&mut self, qname: &str) -> RsmqResult<()> {
+    async fn delete_queue(&mut self, qname: &str) -> RbmqResult<()> {
         let mut conn = self.pool.get().await?;
 
         self.functions.delete_queue(&mut conn, qname).await
     }
-    async fn get_queue_attributes(&mut self, qname: &str) -> RsmqResult<RsmqQueueAttributes> {
+    async fn get_queue_attributes(&mut self, qname: &str) -> RbmqResult<RbmqQueueAttributes> {
         let mut conn = self.pool.get().await?;
 
         self.functions
@@ -185,7 +185,7 @@ impl RsmqConnection for PooledRsmq {
             .await
     }
 
-    async fn list_queues(&mut self) -> RsmqResult<Vec<String>> {
+    async fn list_queues(&mut self) -> RbmqResult<Vec<String>> {
         let mut conn = self.pool.get().await?;
 
         self.functions.list_queues(&mut conn).await
@@ -194,7 +194,7 @@ impl RsmqConnection for PooledRsmq {
     async fn pop_message<E: TryFrom<RedisBytes, Error = Vec<u8>>>(
         &mut self,
         qname: &str,
-    ) -> RsmqResult<Option<RsmqMessage<E>>> {
+    ) -> RbmqResult<Option<RbmqMessage<E>>> {
         let mut conn = self.pool.get().await?;
 
         self.functions
@@ -206,7 +206,7 @@ impl RsmqConnection for PooledRsmq {
         &mut self,
         qname: &str,
         hidden: Option<Duration>,
-    ) -> RsmqResult<Option<RsmqMessage<E>>> {
+    ) -> RbmqResult<Option<RbmqMessage<E>>> {
         let mut conn = self.pool.get().await?;
 
         self.functions
@@ -219,7 +219,7 @@ impl RsmqConnection for PooledRsmq {
         qname: &str,
         message: E,
         delay: Option<Duration>,
-    ) -> RsmqResult<String> {
+    ) -> RbmqResult<String> {
         let mut conn = self.pool.get().await?;
 
         self.functions
@@ -232,7 +232,7 @@ impl RsmqConnection for PooledRsmq {
         qname: &str,
         messages: Vec<E>,
         delay: Option<Duration>,
-    ) -> RsmqResult<Vec<String>> {
+    ) -> RbmqResult<Vec<String>> {
         let mut conn = self.pool.get().await?;
 
         self.functions
@@ -245,7 +245,7 @@ impl RsmqConnection for PooledRsmq {
         qname: &str,
         hidden: Option<Duration>,
         max_count: u32,
-    ) -> RsmqResult<Vec<RsmqMessage<E>>> {
+    ) -> RbmqResult<Vec<RbmqMessage<E>>> {
         let mut conn = self.pool.get().await?;
 
         self.functions
@@ -259,7 +259,7 @@ impl RsmqConnection for PooledRsmq {
         hidden: Option<Duration>,
         delay: Option<Duration>,
         maxsize: Option<i64>,
-    ) -> RsmqResult<RsmqQueueAttributes> {
+    ) -> RbmqResult<RbmqQueueAttributes> {
         let mut conn = self.pool.get().await?;
 
         self.functions
@@ -267,7 +267,7 @@ impl RsmqConnection for PooledRsmq {
             .await
     }
 
-    async fn move_message(&mut self, src: &str, msg_id: &str, dst: &str) -> RsmqResult<bool> {
+    async fn move_message(&mut self, src: &str, msg_id: &str, dst: &str) -> RbmqResult<bool> {
         let mut conn = self.pool.get().await?;
         self.functions
             .move_message(&mut conn, src, msg_id, dst, &self.scripts)
@@ -280,7 +280,7 @@ impl RsmqConnection for PooledRsmq {
         hidden: Option<Duration>,
         dlq: &str,
         max_receives: u64,
-    ) -> RsmqResult<Option<RsmqMessage<E>>> {
+    ) -> RbmqResult<Option<RbmqMessage<E>>> {
         let mut conn = self.pool.get().await?;
         self.functions
             .receive_message_or_dlq::<E>(&mut conn, qname, hidden, dlq, max_receives, &self.scripts)

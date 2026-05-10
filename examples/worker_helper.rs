@@ -6,13 +6,13 @@
 //!
 //!     cargo run --example worker_helper
 
-use rsmq_async::{Rsmq, RsmqConnection, RsmqError, RsmqMessage, RsmqOptions, Worker};
+use rbmq::{Rbmq, RbmqConnection, RbmqError, RbmqMessage, RbmqOptions, Worker};
 use std::convert::Infallible;
 use std::time::Duration;
 
 #[tokio::main]
-async fn main() -> Result<(), RsmqError> {
-    let mut producer = Rsmq::new(Default::default()).await?;
+async fn main() -> Result<(), RbmqError> {
+    let mut producer = Rbmq::new(Default::default()).await?;
 
     let _ = producer.delete_queue("emails").await;
     let _ = producer.delete_queue("billing").await;
@@ -30,16 +30,16 @@ async fn main() -> Result<(), RsmqError> {
             .await?;
     }
 
-    let worker = Worker::builder(RsmqOptions::default())
+    let worker = Worker::builder(RbmqOptions::default())
         .poll_interval(Duration::from_millis(100))
         .heartbeat_interval(Duration::from_secs(5))
         .visibility_extension(Duration::from_secs(30))
-        // .use_realtime(true) // opt in if you sent the messages with `RsmqOptions { realtime: true, .. }`
-        .route("emails", |msg: RsmqMessage<String>| async move {
+        // .use_realtime(true) // opt in if you sent the messages with `RbmqOptions { realtime: true, .. }`
+        .route("emails", |msg: RbmqMessage<String>| async move {
             println!("[emails]  {}", msg.message);
             Ok::<(), Infallible>(())
         })
-        .route("billing", |msg: RsmqMessage<String>| async move {
+        .route("billing", |msg: RbmqMessage<String>| async move {
             println!("[billing] {}", msg.message);
             Ok::<(), Infallible>(())
         })

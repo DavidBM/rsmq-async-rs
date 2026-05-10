@@ -1,6 +1,6 @@
 mod support;
 
-use rsmq_async::{RedisBytes, Rsmq, RsmqConnection as _, RsmqError};
+use rbmq::{RedisBytes, Rbmq, RbmqConnection as _, RbmqError};
 use std::{convert::TryFrom, time::Duration};
 use support::*;
 
@@ -12,8 +12,8 @@ fn rt() -> tokio::runtime::Runtime {
     tokio::runtime::Runtime::new().unwrap()
 }
 
-async fn new_rsmq(ctx: &TestContext) -> Rsmq {
-    Rsmq::new_with_connection(ctx.async_connection().await.unwrap(), false, Some(&ctx.ns))
+async fn new_rbmq(ctx: &TestContext) -> Rbmq {
+    Rbmq::new_with_connection(ctx.async_connection().await.unwrap(), false, Some(&ctx.ns))
         .await
         .unwrap()
 }
@@ -25,17 +25,17 @@ fn send_receiving_deleting_message() {
     rt.block_on(async move {
         let ctx = TestContext::new();
         let connection = ctx.async_connection().await.unwrap();
-        let mut rsmq = Rsmq::new_with_connection(connection, false, Some(&ctx.ns))
+        let mut rbmq = Rbmq::new_with_connection(connection, false, Some(&ctx.ns))
             .await
             .unwrap();
 
-        rsmq.create_queue("queue1", None, None, None).await.unwrap();
+        rbmq.create_queue("queue1", None, None, None).await.unwrap();
 
-        rsmq.send_message("queue1", "testmessage", None)
+        rbmq.send_message("queue1", "testmessage", None)
             .await
             .unwrap();
 
-        let message = rsmq
+        let message = rbmq
             .receive_message::<String>("queue1", None)
             .await
             .unwrap();
@@ -43,17 +43,17 @@ fn send_receiving_deleting_message() {
 
         let message = message.unwrap();
 
-        rsmq.delete_message("queue1", &message.id).await.unwrap();
+        rbmq.delete_message("queue1", &message.id).await.unwrap();
 
         assert_eq!(message.message, "testmessage".to_string());
 
-        let message = rsmq
+        let message = rbmq
             .receive_message::<String>("queue1", None)
             .await
             .unwrap();
 
         assert!(message.is_none());
-        rsmq.delete_queue("queue1").await.unwrap();
+        rbmq.delete_queue("queue1").await.unwrap();
     })
 }
 
@@ -64,31 +64,31 @@ fn send_receiving_delayed_message() {
     rt.block_on(async move {
         let ctx = TestContext::new();
         let connection = ctx.async_connection().await.unwrap();
-        let mut rsmq = Rsmq::new_with_connection(connection, false, Some(&ctx.ns))
+        let mut rbmq = Rbmq::new_with_connection(connection, false, Some(&ctx.ns))
             .await
             .unwrap();
 
-        rsmq.create_queue("queue1", None, None, None).await.unwrap();
+        rbmq.create_queue("queue1", None, None, None).await.unwrap();
 
-        rsmq.send_message("queue1", "testmessage", Some(Duration::from_secs(2)))
+        rbmq.send_message("queue1", "testmessage", Some(Duration::from_secs(2)))
             .await
             .unwrap();
 
         tokio::time::sleep(std::time::Duration::from_millis(500)).await;
 
-        let message = rsmq
+        let message = rbmq
             .receive_message::<String>("queue1", None)
             .await
             .unwrap();
         assert!(message.is_none());
 
-        let message = rsmq
+        let message = rbmq
             .receive_message::<String>("queue1", None)
             .await
             .unwrap();
         assert!(message.is_none());
 
-        let message = rsmq
+        let message = rbmq
             .receive_message::<String>("queue1", None)
             .await
             .unwrap();
@@ -96,7 +96,7 @@ fn send_receiving_delayed_message() {
 
         tokio::time::sleep(std::time::Duration::from_secs(2)).await;
 
-        let message = rsmq
+        let message = rbmq
             .receive_message::<String>("queue1", None)
             .await
             .unwrap();
@@ -104,17 +104,17 @@ fn send_receiving_delayed_message() {
 
         let message = message.unwrap();
 
-        rsmq.delete_message("queue1", &message.id).await.unwrap();
+        rbmq.delete_message("queue1", &message.id).await.unwrap();
 
         assert_eq!(message.message, "testmessage".to_string());
 
-        let message = rsmq
+        let message = rbmq
             .receive_message::<String>("queue1", None)
             .await
             .unwrap();
 
         assert!(message.is_none());
-        rsmq.delete_queue("queue1").await.unwrap();
+        rbmq.delete_queue("queue1").await.unwrap();
     })
 }
 
@@ -125,17 +125,17 @@ fn send_receiving_deleting_message_vec_u8() {
     rt.block_on(async move {
         let ctx = TestContext::new();
         let connection = ctx.async_connection().await.unwrap();
-        let mut rsmq = Rsmq::new_with_connection(connection, false, Some(&ctx.ns))
+        let mut rbmq = Rbmq::new_with_connection(connection, false, Some(&ctx.ns))
             .await
             .unwrap();
 
-        rsmq.create_queue("queue1", None, None, None).await.unwrap();
+        rbmq.create_queue("queue1", None, None, None).await.unwrap();
 
-        rsmq.send_message("queue1", "testmessage", None)
+        rbmq.send_message("queue1", "testmessage", None)
             .await
             .unwrap();
 
-        let message = rsmq
+        let message = rbmq
             .receive_message::<Vec<u8>>("queue1", None)
             .await
             .unwrap();
@@ -143,17 +143,17 @@ fn send_receiving_deleting_message_vec_u8() {
 
         let message = message.unwrap();
 
-        rsmq.delete_message("queue1", &message.id).await.unwrap();
+        rbmq.delete_message("queue1", &message.id).await.unwrap();
 
         assert_eq!(message.message, b"testmessage");
 
-        let message = rsmq
+        let message = rbmq
             .receive_message::<Vec<u8>>("queue1", None)
             .await
             .unwrap();
 
         assert!(message.is_none());
-        rsmq.delete_queue("queue1").await.unwrap();
+        rbmq.delete_queue("queue1").await.unwrap();
     })
 }
 
@@ -175,17 +175,17 @@ fn send_receiving_deleting_message_custom_type() {
     rt.block_on(async move {
         let ctx = TestContext::new();
         let connection = ctx.async_connection().await.unwrap();
-        let mut rsmq = Rsmq::new_with_connection(connection, false, Some(&ctx.ns))
+        let mut rbmq = Rbmq::new_with_connection(connection, false, Some(&ctx.ns))
             .await
             .unwrap();
 
-        rsmq.create_queue("queue1", None, None, None).await.unwrap();
+        rbmq.create_queue("queue1", None, None, None).await.unwrap();
 
-        rsmq.send_message("queue1", b"testmessage".to_owned().to_vec(), None)
+        rbmq.send_message("queue1", b"testmessage".to_owned().to_vec(), None)
             .await
             .unwrap();
 
-        let message = rsmq
+        let message = rbmq
             .receive_message::<MyValue>("queue1", None)
             .await
             .unwrap();
@@ -193,17 +193,17 @@ fn send_receiving_deleting_message_custom_type() {
 
         let message = message.unwrap();
 
-        rsmq.delete_message("queue1", &message.id).await.unwrap();
+        rbmq.delete_message("queue1", &message.id).await.unwrap();
 
         assert_eq!(message.message, MyValue(b"testmessage".to_owned().to_vec()));
 
-        let message = rsmq
+        let message = rbmq
             .receive_message::<MyValue>("queue1", None)
             .await
             .unwrap();
 
         assert!(message.is_none());
-        rsmq.delete_queue("queue1").await.unwrap();
+        rbmq.delete_queue("queue1").await.unwrap();
     })
 }
 
@@ -214,17 +214,17 @@ fn pop_message() {
     rt.block_on(async move {
         let ctx = TestContext::new();
         let connection = ctx.async_connection().await.unwrap();
-        let mut rsmq = Rsmq::new_with_connection(connection, false, Some(&ctx.ns))
+        let mut rbmq = Rbmq::new_with_connection(connection, false, Some(&ctx.ns))
             .await
             .unwrap();
 
-        rsmq.create_queue("queue2", None, None, None).await.unwrap();
+        rbmq.create_queue("queue2", None, None, None).await.unwrap();
 
-        rsmq.send_message("queue2", "testmessage", None)
+        rbmq.send_message("queue2", "testmessage", None)
             .await
             .unwrap();
 
-        let message = rsmq.pop_message::<String>("queue2").await.unwrap();
+        let message = rbmq.pop_message::<String>("queue2").await.unwrap();
 
         assert!(message.is_some());
 
@@ -232,11 +232,11 @@ fn pop_message() {
 
         assert_eq!(message.message, "testmessage");
 
-        let message = rsmq.pop_message::<String>("queue2").await.unwrap();
+        let message = rbmq.pop_message::<String>("queue2").await.unwrap();
 
         assert!(message.is_none());
 
-        rsmq.delete_queue("queue2").await.unwrap();
+        rbmq.delete_queue("queue2").await.unwrap();
     })
 }
 
@@ -247,17 +247,17 @@ fn pop_message_vec_u8() {
     rt.block_on(async move {
         let ctx = TestContext::new();
         let connection = ctx.async_connection().await.unwrap();
-        let mut rsmq = Rsmq::new_with_connection(connection, false, Some(&ctx.ns))
+        let mut rbmq = Rbmq::new_with_connection(connection, false, Some(&ctx.ns))
             .await
             .unwrap();
 
-        rsmq.create_queue("queue2", None, None, None).await.unwrap();
+        rbmq.create_queue("queue2", None, None, None).await.unwrap();
 
-        rsmq.send_message("queue2", "testmessage", None)
+        rbmq.send_message("queue2", "testmessage", None)
             .await
             .unwrap();
 
-        let message = rsmq.pop_message::<Vec<u8>>("queue2").await.unwrap();
+        let message = rbmq.pop_message::<Vec<u8>>("queue2").await.unwrap();
 
         assert!(message.is_some());
 
@@ -265,11 +265,11 @@ fn pop_message_vec_u8() {
 
         assert_eq!(message.message, "testmessage".as_bytes());
 
-        let message = rsmq.pop_message::<String>("queue2").await.unwrap();
+        let message = rbmq.pop_message::<String>("queue2").await.unwrap();
 
         assert!(message.is_none());
 
-        rsmq.delete_queue("queue2").await.unwrap();
+        rbmq.delete_queue("queue2").await.unwrap();
     })
 }
 
@@ -280,22 +280,22 @@ fn creating_queue() {
     rt.block_on(async move {
         let ctx = TestContext::new();
         let connection = ctx.async_connection().await.unwrap();
-        let mut rsmq = Rsmq::new_with_connection(connection, false, Some(&ctx.ns))
+        let mut rbmq = Rbmq::new_with_connection(connection, false, Some(&ctx.ns))
             .await
             .unwrap();
 
-        rsmq.create_queue("queue3", None, None, None).await.unwrap();
+        rbmq.create_queue("queue3", None, None, None).await.unwrap();
 
-        let queues = rsmq.list_queues().await.unwrap();
+        let queues = rbmq.list_queues().await.unwrap();
 
         assert_eq!(queues, vec!("queue3"));
 
-        let result = rsmq.create_queue("queue3", None, None, None).await;
+        let result = rbmq.create_queue("queue3", None, None, None).await;
 
         assert!(result.is_err());
 
-        if let Err(RsmqError::QueueExists) = result {
-            rsmq.delete_queue("queue3").await.unwrap();
+        if let Err(RbmqError::QueueExists) = result {
+            rbmq.delete_queue("queue3").await.unwrap();
         } else {
             panic!()
         }
@@ -309,13 +309,13 @@ fn updating_queue() {
     rt.block_on(async move {
         let ctx = TestContext::new();
         let connection = ctx.async_connection().await.unwrap();
-        let mut rsmq = Rsmq::new_with_connection(connection, false, Some(&ctx.ns))
+        let mut rbmq = Rbmq::new_with_connection(connection, false, Some(&ctx.ns))
             .await
             .unwrap();
 
-        rsmq.create_queue("queue4", None, None, None).await.unwrap();
+        rbmq.create_queue("queue4", None, None, None).await.unwrap();
 
-        let attributes = rsmq.get_queue_attributes("queue4").await.unwrap();
+        let attributes = rbmq.get_queue_attributes("queue4").await.unwrap();
 
         assert_eq!(attributes.vt, Duration::from_secs(30));
         assert_eq!(attributes.delay, Duration::ZERO);
@@ -327,7 +327,7 @@ fn updating_queue() {
         assert!(attributes.created > 0);
         assert!(attributes.modified > 0);
 
-        rsmq.set_queue_attributes(
+        rbmq.set_queue_attributes(
             "queue4",
             Some(Duration::from_secs(45)),
             Some(Duration::from_secs(5)),
@@ -336,7 +336,7 @@ fn updating_queue() {
         .await
         .unwrap();
 
-        let attributes = rsmq.get_queue_attributes("queue4").await.unwrap();
+        let attributes = rbmq.get_queue_attributes("queue4").await.unwrap();
 
         assert_eq!(attributes.vt, Duration::from_secs(45));
         assert_eq!(attributes.delay, Duration::from_secs(5));
@@ -348,7 +348,7 @@ fn updating_queue() {
         assert!(attributes.created > 0);
         assert!(attributes.modified > 0);
 
-        rsmq.delete_queue("queue4").await.unwrap();
+        rbmq.delete_queue("queue4").await.unwrap();
     })
 }
 
@@ -359,41 +359,41 @@ fn deleting_queue() {
     rt.block_on(async move {
         let ctx = TestContext::new();
         let connection = ctx.async_connection().await.unwrap();
-        let mut rsmq = Rsmq::new_with_connection(connection, false, Some(&ctx.ns))
+        let mut rbmq = Rbmq::new_with_connection(connection, false, Some(&ctx.ns))
             .await
             .unwrap();
 
-        rsmq.create_queue("queue5", None, None, None).await.unwrap();
+        rbmq.create_queue("queue5", None, None, None).await.unwrap();
 
-        let queues = rsmq.list_queues().await.unwrap();
+        let queues = rbmq.list_queues().await.unwrap();
 
         assert_eq!(queues, vec!("queue5"));
 
-        rsmq.delete_queue("queue5").await.unwrap();
+        rbmq.delete_queue("queue5").await.unwrap();
 
-        let queues = rsmq.list_queues().await.unwrap();
+        let queues = rbmq.list_queues().await.unwrap();
 
         assert_eq!(queues, Vec::<String>::new());
 
-        let result = rsmq.delete_queue("queue5").await;
+        let result = rbmq.delete_queue("queue5").await;
 
         assert!(result.is_err());
 
-        if let Err(RsmqError::QueueNotFound) = result {
+        if let Err(RbmqError::QueueNotFound) = result {
         } else {
             panic!("{:?}", result)
         }
 
-        let result = rsmq.get_queue_attributes("queue5").await;
+        let result = rbmq.get_queue_attributes("queue5").await;
 
         assert!(result.is_err());
 
-        if let Err(RsmqError::QueueNotFound) = result {
+        if let Err(RbmqError::QueueNotFound) = result {
         } else {
             panic!("{:?}", result)
         }
 
-        let result = rsmq
+        let result = rbmq
             .set_queue_attributes(
                 "queue5",
                 Some(Duration::from_secs(45)),
@@ -404,7 +404,7 @@ fn deleting_queue() {
 
         assert!(result.is_err());
 
-        if let Err(RsmqError::QueueNotFound) = result {
+        if let Err(RbmqError::QueueNotFound) = result {
         } else {
             panic!("{:?}", result)
         }
@@ -418,17 +418,17 @@ fn change_message_visibility() {
     rt.block_on(async move {
         let ctx = TestContext::new();
         let connection = ctx.async_connection().await.unwrap();
-        let mut rsmq = Rsmq::new_with_connection(connection, false, Some(&ctx.ns))
+        let mut rbmq = Rbmq::new_with_connection(connection, false, Some(&ctx.ns))
             .await
             .unwrap();
 
-        rsmq.create_queue("queue6", None, None, None).await.unwrap();
+        rbmq.create_queue("queue6", None, None, None).await.unwrap();
 
-        rsmq.send_message("queue6", "testmessage", None)
+        rbmq.send_message("queue6", "testmessage", None)
             .await
             .unwrap();
 
-        let message = rsmq
+        let message = rbmq
             .receive_message::<String>("queue6", None)
             .await
             .unwrap();
@@ -436,20 +436,20 @@ fn change_message_visibility() {
 
         let message_id = message.unwrap().id;
 
-        let message = rsmq
+        let message = rbmq
             .receive_message::<String>("queue6", None)
             .await
             .unwrap();
         assert!(message.is_none());
 
-        rsmq.change_message_visibility("queue6", &message_id, Duration::ZERO)
+        rbmq.change_message_visibility("queue6", &message_id, Duration::ZERO)
             .await
             .unwrap();
 
         let ten_millis = std::time::Duration::from_millis(10);
         std::thread::sleep(ten_millis);
 
-        let message = rsmq
+        let message = rbmq
             .receive_message::<String>("queue6", None)
             .await
             .unwrap();
@@ -457,7 +457,7 @@ fn change_message_visibility() {
 
         assert_eq!(message_id, message.unwrap().id);
 
-        rsmq.delete_queue("queue6").await.unwrap();
+        rbmq.delete_queue("queue6").await.unwrap();
     })
 }
 
@@ -468,17 +468,17 @@ fn change_queue_size() {
     rt.block_on(async move {
         let ctx = TestContext::new();
         let connection = ctx.async_connection().await.unwrap();
-        let mut rsmq = Rsmq::new_with_connection(connection, false, Some(&ctx.ns))
+        let mut rbmq = Rbmq::new_with_connection(connection, false, Some(&ctx.ns))
             .await
             .unwrap();
 
-        rsmq.create_queue("queue6", None, None, None).await.unwrap();
+        rbmq.create_queue("queue6", None, None, None).await.unwrap();
 
-        rsmq.set_queue_attributes("queue6", None, None, Some(-1))
+        rbmq.set_queue_attributes("queue6", None, None, Some(-1))
             .await
             .unwrap();
 
-        let attributes = rsmq.get_queue_attributes("queue6").await.unwrap();
+        let attributes = rbmq.get_queue_attributes("queue6").await.unwrap();
 
         assert_eq!(attributes.maxsize, -1);
     })
@@ -492,36 +492,36 @@ fn sent_messages_must_keep_order() {
     rt.block_on(async move {
         let ctx = TestContext::new();
         let connection = ctx.async_connection().await.unwrap();
-        let mut rsmq = Rsmq::new_with_connection(connection, false, Some(&ctx.ns))
+        let mut rbmq = Rbmq::new_with_connection(connection, false, Some(&ctx.ns))
             .await
             .unwrap();
 
-        rsmq.create_queue("queue1", None, None, None).await.unwrap();
+        rbmq.create_queue("queue1", None, None, None).await.unwrap();
 
         for i in 0..10000 {
-            rsmq.send_message("queue1", format!("testmessage{}", i), None)
+            rbmq.send_message("queue1", format!("testmessage{}", i), None)
                 .await
                 .unwrap();
         }
 
         for i in 0..10000 {
-            let message = rsmq
+            let message = rbmq
                 .receive_message::<String>("queue1", None)
                 .await
                 .unwrap()
                 .unwrap();
             assert_eq!(message.message, format!("testmessage{}", i));
 
-            rsmq.delete_message("queue1", &message.id).await.unwrap();
+            rbmq.delete_message("queue1", &message.id).await.unwrap();
         }
 
-        let message = rsmq
+        let message = rbmq
             .receive_message::<String>("queue1", None)
             .await
             .unwrap();
 
         assert!(message.is_none());
-        rsmq.delete_queue("queue1").await.unwrap();
+        rbmq.delete_queue("queue1").await.unwrap();
     })
 }
 
@@ -533,10 +533,10 @@ fn sent_messages_must_keep_order() {
 fn queue_name_empty_is_rejected() {
     rt().block_on(async {
         let ctx = TestContext::new();
-        let mut rsmq = new_rsmq(&ctx).await;
+        let mut rbmq = new_rbmq(&ctx).await;
         assert!(matches!(
-            rsmq.create_queue("", None, None, None).await,
-            Err(RsmqError::InvalidFormat(_))
+            rbmq.create_queue("", None, None, None).await,
+            Err(RbmqError::InvalidFormat(_))
         ));
     });
 }
@@ -545,11 +545,11 @@ fn queue_name_empty_is_rejected() {
 fn queue_name_too_long_is_rejected() {
     rt().block_on(async {
         let ctx = TestContext::new();
-        let mut rsmq = new_rsmq(&ctx).await;
+        let mut rbmq = new_rbmq(&ctx).await;
         let long = "a".repeat(161);
         assert!(matches!(
-            rsmq.create_queue(&long, None, None, None).await,
-            Err(RsmqError::InvalidFormat(_))
+            rbmq.create_queue(&long, None, None, None).await,
+            Err(RbmqError::InvalidFormat(_))
         ));
     });
 }
@@ -558,12 +558,12 @@ fn queue_name_too_long_is_rejected() {
 fn queue_name_invalid_chars_are_rejected() {
     rt().block_on(async {
         let ctx = TestContext::new();
-        let mut rsmq = new_rsmq(&ctx).await;
+        let mut rbmq = new_rbmq(&ctx).await;
         for bad in &["has space", "has.dot", "has@at", "has/slash", "has:colon"] {
             assert!(
                 matches!(
-                    rsmq.create_queue(bad, None, None, None).await,
-                    Err(RsmqError::InvalidFormat(_))
+                    rbmq.create_queue(bad, None, None, None).await,
+                    Err(RbmqError::InvalidFormat(_))
                 ),
                 "expected InvalidFormat for {:?}",
                 bad
@@ -576,12 +576,12 @@ fn queue_name_invalid_chars_are_rejected() {
 fn queue_name_valid_boundaries_accepted() {
     rt().block_on(async {
         let ctx = TestContext::new();
-        let mut rsmq = new_rsmq(&ctx).await;
-        rsmq.create_queue("valid-name_123", None, None, None)
+        let mut rbmq = new_rbmq(&ctx).await;
+        rbmq.create_queue("valid-name_123", None, None, None)
             .await
             .unwrap();
         let max_name = "a".repeat(160);
-        rsmq.create_queue(&max_name, None, None, None)
+        rbmq.create_queue(&max_name, None, None, None)
             .await
             .unwrap();
     });
@@ -595,26 +595,26 @@ fn queue_name_valid_boundaries_accepted() {
 fn create_queue_maxsize_boundaries() {
     rt().block_on(async {
         let ctx = TestContext::new();
-        let mut rsmq = new_rsmq(&ctx).await;
+        let mut rbmq = new_rbmq(&ctx).await;
 
-        rsmq.create_queue("q-min", None, None, Some(1024))
+        rbmq.create_queue("q-min", None, None, Some(1024))
             .await
             .unwrap();
-        rsmq.create_queue("q-max", None, None, Some(65536))
+        rbmq.create_queue("q-max", None, None, Some(65536))
             .await
             .unwrap();
-        rsmq.create_queue("q-unlimited", None, None, Some(-1))
+        rbmq.create_queue("q-unlimited", None, None, Some(-1))
             .await
             .unwrap();
 
         assert!(matches!(
-            rsmq.create_queue("q-bad-low", None, None, Some(1023)).await,
-            Err(RsmqError::InvalidValue(_, _, _))
+            rbmq.create_queue("q-bad-low", None, None, Some(1023)).await,
+            Err(RbmqError::InvalidValue(_, _, _))
         ));
         assert!(matches!(
-            rsmq.create_queue("q-bad-high", None, None, Some(65537))
+            rbmq.create_queue("q-bad-high", None, None, Some(65537))
                 .await,
-            Err(RsmqError::InvalidValue(_, _, _))
+            Err(RbmqError::InvalidValue(_, _, _))
         ));
     });
 }
@@ -627,9 +627,9 @@ fn create_queue_maxsize_boundaries() {
 fn message_exactly_at_maxsize_is_accepted() {
     rt().block_on(async {
         let ctx = TestContext::new();
-        let mut rsmq = new_rsmq(&ctx).await;
-        rsmq.create_queue("q1", None, None, None).await.unwrap();
-        rsmq.send_message("q1", "x".repeat(65536), None)
+        let mut rbmq = new_rbmq(&ctx).await;
+        rbmq.create_queue("q1", None, None, None).await.unwrap();
+        rbmq.send_message("q1", "x".repeat(65536), None)
             .await
             .unwrap();
     });
@@ -639,11 +639,11 @@ fn message_exactly_at_maxsize_is_accepted() {
 fn message_exceeding_maxsize_is_rejected() {
     rt().block_on(async {
         let ctx = TestContext::new();
-        let mut rsmq = new_rsmq(&ctx).await;
-        rsmq.create_queue("q1", None, None, None).await.unwrap();
+        let mut rbmq = new_rbmq(&ctx).await;
+        rbmq.create_queue("q1", None, None, None).await.unwrap();
         assert!(matches!(
-            rsmq.send_message("q1", "x".repeat(65537), None).await,
-            Err(RsmqError::MessageTooLong)
+            rbmq.send_message("q1", "x".repeat(65537), None).await,
+            Err(RbmqError::MessageTooLong)
         ));
     });
 }
@@ -652,9 +652,9 @@ fn message_exceeding_maxsize_is_rejected() {
 fn unlimited_maxsize_accepts_large_message() {
     rt().block_on(async {
         let ctx = TestContext::new();
-        let mut rsmq = new_rsmq(&ctx).await;
-        rsmq.create_queue("q1", None, None, Some(-1)).await.unwrap();
-        rsmq.send_message("q1", "x".repeat(100_000), None)
+        let mut rbmq = new_rbmq(&ctx).await;
+        rbmq.create_queue("q1", None, None, Some(-1)).await.unwrap();
+        rbmq.send_message("q1", "x".repeat(100_000), None)
             .await
             .unwrap();
     });
@@ -668,10 +668,10 @@ fn unlimited_maxsize_accepts_large_message() {
 fn queue_attributes_track_sent_and_received_counts() {
     rt().block_on(async {
         let ctx = TestContext::new();
-        let mut rsmq = new_rsmq(&ctx).await;
-        rsmq.create_queue("q1", None, None, None).await.unwrap();
+        let mut rbmq = new_rbmq(&ctx).await;
+        rbmq.create_queue("q1", None, None, None).await.unwrap();
 
-        let attrs = rsmq.get_queue_attributes("q1").await.unwrap();
+        let attrs = rbmq.get_queue_attributes("q1").await.unwrap();
         assert_eq!(attrs.msgs, 0);
         assert_eq!(attrs.totalsent, 0);
         assert_eq!(attrs.totalrecv, 0);
@@ -679,20 +679,20 @@ fn queue_attributes_track_sent_and_received_counts() {
         assert!(attrs.modified > 0);
 
         for i in 0..3u32 {
-            rsmq.send_message("q1", format!("msg{i}"), None)
+            rbmq.send_message("q1", format!("msg{i}"), None)
                 .await
                 .unwrap();
         }
-        let attrs = rsmq.get_queue_attributes("q1").await.unwrap();
+        let attrs = rbmq.get_queue_attributes("q1").await.unwrap();
         assert_eq!(attrs.msgs, 3);
         assert_eq!(attrs.totalsent, 3);
         assert_eq!(attrs.totalrecv, 0);
 
         // Receive 2 — they become hidden (not deleted)
-        rsmq.receive_message::<String>("q1", None).await.unwrap();
-        rsmq.receive_message::<String>("q1", None).await.unwrap();
+        rbmq.receive_message::<String>("q1", None).await.unwrap();
+        rbmq.receive_message::<String>("q1", None).await.unwrap();
 
-        let attrs = rsmq.get_queue_attributes("q1").await.unwrap();
+        let attrs = rbmq.get_queue_attributes("q1").await.unwrap();
         assert_eq!(attrs.msgs, 3);
         assert_eq!(attrs.totalsent, 3);
         assert_eq!(attrs.totalrecv, 2);
@@ -703,10 +703,10 @@ fn queue_attributes_track_sent_and_received_counts() {
 fn get_queue_attributes_on_nonexistent_queue() {
     rt().block_on(async {
         let ctx = TestContext::new();
-        let mut rsmq = new_rsmq(&ctx).await;
+        let mut rbmq = new_rbmq(&ctx).await;
         assert!(matches!(
-            rsmq.get_queue_attributes("noqueue").await,
-            Err(RsmqError::QueueNotFound)
+            rbmq.get_queue_attributes("noqueue").await,
+            Err(RbmqError::QueueNotFound)
         ));
     });
 }
@@ -719,32 +719,32 @@ fn get_queue_attributes_on_nonexistent_queue() {
 fn set_queue_attributes_only_updates_specified_fields() {
     rt().block_on(async {
         let ctx = TestContext::new();
-        let mut rsmq = new_rsmq(&ctx).await;
-        rsmq.create_queue("q1", None, None, None).await.unwrap();
+        let mut rbmq = new_rbmq(&ctx).await;
+        rbmq.create_queue("q1", None, None, None).await.unwrap();
 
         // Update only vt — delay and maxsize keep their defaults
-        rsmq.set_queue_attributes("q1", Some(Duration::from_secs(60)), None, None)
+        rbmq.set_queue_attributes("q1", Some(Duration::from_secs(60)), None, None)
             .await
             .unwrap();
-        let a = rsmq.get_queue_attributes("q1").await.unwrap();
+        let a = rbmq.get_queue_attributes("q1").await.unwrap();
         assert_eq!(a.vt, Duration::from_secs(60));
         assert_eq!(a.delay, Duration::ZERO);
         assert_eq!(a.maxsize, 65536);
 
         // Update only delay — vt must stay at 60 s
-        rsmq.set_queue_attributes("q1", None, Some(Duration::from_secs(10)), None)
+        rbmq.set_queue_attributes("q1", None, Some(Duration::from_secs(10)), None)
             .await
             .unwrap();
-        let a = rsmq.get_queue_attributes("q1").await.unwrap();
+        let a = rbmq.get_queue_attributes("q1").await.unwrap();
         assert_eq!(a.vt, Duration::from_secs(60));
         assert_eq!(a.delay, Duration::from_secs(10));
         assert_eq!(a.maxsize, 65536);
 
         // Update only maxsize — others unchanged
-        rsmq.set_queue_attributes("q1", None, None, Some(2048))
+        rbmq.set_queue_attributes("q1", None, None, Some(2048))
             .await
             .unwrap();
-        let a = rsmq.get_queue_attributes("q1").await.unwrap();
+        let a = rbmq.get_queue_attributes("q1").await.unwrap();
         assert_eq!(a.vt, Duration::from_secs(60));
         assert_eq!(a.delay, Duration::from_secs(10));
         assert_eq!(a.maxsize, 2048);
@@ -759,11 +759,11 @@ fn set_queue_attributes_only_updates_specified_fields() {
 fn receive_count_increments_and_first_received_is_preserved() {
     rt().block_on(async {
         let ctx = TestContext::new();
-        let mut rsmq = new_rsmq(&ctx).await;
-        rsmq.create_queue("q1", None, None, None).await.unwrap();
-        rsmq.send_message("q1", "hello", None).await.unwrap();
+        let mut rbmq = new_rbmq(&ctx).await;
+        rbmq.create_queue("q1", None, None, None).await.unwrap();
+        rbmq.send_message("q1", "hello", None).await.unwrap();
 
-        let msg = rsmq
+        let msg = rbmq
             .receive_message::<String>("q1", None)
             .await
             .unwrap()
@@ -774,12 +774,12 @@ fn receive_count_increments_and_first_received_is_preserved() {
         let id = msg.id.clone();
 
         // Make the message visible again immediately
-        rsmq.change_message_visibility("q1", &id, Duration::ZERO)
+        rbmq.change_message_visibility("q1", &id, Duration::ZERO)
             .await
             .unwrap();
         tokio::time::sleep(Duration::from_millis(10)).await;
 
-        let msg2 = rsmq
+        let msg2 = rbmq
             .receive_message::<String>("q1", None)
             .await
             .unwrap()
@@ -798,18 +798,18 @@ fn receive_count_increments_and_first_received_is_preserved() {
 fn delete_message_returns_true_then_false() {
     rt().block_on(async {
         let ctx = TestContext::new();
-        let mut rsmq = new_rsmq(&ctx).await;
-        rsmq.create_queue("q1", None, None, None).await.unwrap();
-        rsmq.send_message("q1", "hello", None).await.unwrap();
+        let mut rbmq = new_rbmq(&ctx).await;
+        rbmq.create_queue("q1", None, None, None).await.unwrap();
+        rbmq.send_message("q1", "hello", None).await.unwrap();
 
-        let msg = rsmq
+        let msg = rbmq
             .receive_message::<String>("q1", None)
             .await
             .unwrap()
             .unwrap();
 
-        assert!(rsmq.delete_message("q1", &msg.id).await.unwrap());
-        assert!(!rsmq.delete_message("q1", &msg.id).await.unwrap());
+        assert!(rbmq.delete_message("q1", &msg.id).await.unwrap());
+        assert!(!rbmq.delete_message("q1", &msg.id).await.unwrap());
     });
 }
 
@@ -821,11 +821,11 @@ fn delete_message_returns_true_then_false() {
 fn message_sent_field_is_nonzero() {
     rt().block_on(async {
         let ctx = TestContext::new();
-        let mut rsmq = new_rsmq(&ctx).await;
-        rsmq.create_queue("q1", None, None, None).await.unwrap();
-        rsmq.send_message("q1", "hello", None).await.unwrap();
+        let mut rbmq = new_rbmq(&ctx).await;
+        rbmq.create_queue("q1", None, None, None).await.unwrap();
+        rbmq.send_message("q1", "hello", None).await.unwrap();
 
-        let msg = rsmq
+        let msg = rbmq
             .receive_message::<String>("q1", None)
             .await
             .unwrap()
@@ -842,32 +842,32 @@ fn message_sent_field_is_nonzero() {
 fn operations_on_nonexistent_queue_return_queue_not_found() {
     rt().block_on(async {
         let ctx = TestContext::new();
-        let mut rsmq = new_rsmq(&ctx).await;
+        let mut rbmq = new_rbmq(&ctx).await;
 
         assert!(matches!(
-            rsmq.send_message("ghost", "msg", None).await,
-            Err(RsmqError::QueueNotFound)
+            rbmq.send_message("ghost", "msg", None).await,
+            Err(RbmqError::QueueNotFound)
         ));
         assert!(matches!(
-            rsmq.receive_message::<String>("ghost", None).await,
-            Err(RsmqError::QueueNotFound)
+            rbmq.receive_message::<String>("ghost", None).await,
+            Err(RbmqError::QueueNotFound)
         ));
         assert!(matches!(
-            rsmq.pop_message::<String>("ghost").await,
-            Err(RsmqError::QueueNotFound)
+            rbmq.pop_message::<String>("ghost").await,
+            Err(RbmqError::QueueNotFound)
         ));
         assert!(matches!(
-            rsmq.get_queue_attributes("ghost").await,
-            Err(RsmqError::QueueNotFound)
+            rbmq.get_queue_attributes("ghost").await,
+            Err(RbmqError::QueueNotFound)
         ));
         assert!(matches!(
-            rsmq.set_queue_attributes("ghost", None, None, None).await,
-            Err(RsmqError::QueueNotFound)
+            rbmq.set_queue_attributes("ghost", None, None, None).await,
+            Err(RbmqError::QueueNotFound)
         ));
         assert!(matches!(
-            rsmq.change_message_visibility("ghost", "fakeid", Duration::from_secs(5))
+            rbmq.change_message_visibility("ghost", "fakeid", Duration::from_secs(5))
                 .await,
-            Err(RsmqError::QueueNotFound)
+            Err(RbmqError::QueueNotFound)
         ));
     });
 }
@@ -881,10 +881,10 @@ fn operations_on_nonexistent_queue_return_queue_not_found() {
 fn receive_skips_phantom_message_without_body() {
     rt().block_on(async {
         let ctx = TestContext::new();
-        let mut rsmq = new_rsmq(&ctx).await;
+        let mut rbmq = new_rbmq(&ctx).await;
         let mut raw = ctx.async_connection().await.unwrap();
 
-        rsmq.create_queue("q1", None, None, None).await.unwrap();
+        rbmq.create_queue("q1", None, None, None).await.unwrap();
 
         // Inject a phantom message ID directly into the sorted set (no hash entry).
         // Score 0 is always in the past, so it is immediately visible.
@@ -896,10 +896,10 @@ fn receive_skips_phantom_message_without_body() {
             .await
             .unwrap();
 
-        let msg = rsmq.receive_message::<String>("q1", None).await.unwrap();
+        let msg = rbmq.receive_message::<String>("q1", None).await.unwrap();
         assert!(msg.is_none(), "phantom message should not be returned");
 
-        let attrs = rsmq.get_queue_attributes("q1").await.unwrap();
+        let attrs = rbmq.get_queue_attributes("q1").await.unwrap();
         assert_eq!(
             attrs.totalrecv, 0,
             "totalrecv must not increment for nil body"

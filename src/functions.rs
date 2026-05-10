@@ -1,7 +1,7 @@
 use crate::types::RedisBytes;
 use crate::{
-    types::{QueueDescriptor, RsmqMessage, RsmqQueueAttributes},
-    RsmqError, RsmqResult,
+    types::{QueueDescriptor, RbmqMessage, RbmqQueueAttributes},
+    RbmqError, RbmqResult,
 };
 use core::convert::TryFrom;
 use radix_fmt::radix_36;
@@ -26,15 +26,15 @@ const USE_MICROSECONDS: u64 = 0;
 
 /// The main object of this library. Creates/Handles the redis connection and contains all the methods
 #[derive(Clone)]
-pub struct RsmqFunctions<T: ConnectionLike> {
+pub struct RbmqFunctions<T: ConnectionLike> {
     pub(crate) ns: String,
     pub(crate) realtime: bool,
     pub(crate) conn: std::marker::PhantomData<T>,
 }
 
-impl<T: ConnectionLike> std::fmt::Debug for RsmqFunctions<T> {
+impl<T: ConnectionLike> std::fmt::Debug for RbmqFunctions<T> {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        write!(f, "RsmqFunctions")
+        write!(f, "RbmqFunctions")
     }
 }
 
@@ -50,40 +50,40 @@ pub struct CachedScript {
 }
 
 impl CachedScript {
-    async fn init<T: ConnectionLike>(conn: &mut T) -> RsmqResult<Self> {
+    async fn init<T: ConnectionLike>(conn: &mut T) -> RbmqResult<Self> {
         let change_message_visibility_sha1: String = redis::cmd("SCRIPT")
             .arg("LOAD")
-            .arg(include_str!("./redis-scripts/changeMessageVisibility.lua"))
+            .arg(include_str!("../scripts/changeMessageVisibility.lua"))
             .query_async(conn)
             .await?;
         let receive_message_sha1: String = redis::cmd("SCRIPT")
             .arg("LOAD")
-            .arg(include_str!("./redis-scripts/receiveMessage.lua"))
+            .arg(include_str!("../scripts/receiveMessage.lua"))
             .query_async(conn)
             .await?;
         let get_queue_attributes_sha1: String = redis::cmd("SCRIPT")
             .arg("LOAD")
-            .arg(include_str!("./redis-scripts/getQueueAttributes.lua"))
+            .arg(include_str!("../scripts/getQueueAttributes.lua"))
             .query_async(conn)
             .await?;
         let send_message_batch_sha1: String = redis::cmd("SCRIPT")
             .arg("LOAD")
-            .arg(include_str!("./redis-scripts/sendMessageBatch.lua"))
+            .arg(include_str!("../scripts/sendMessageBatch.lua"))
             .query_async(conn)
             .await?;
         let receive_message_batch_sha1: String = redis::cmd("SCRIPT")
             .arg("LOAD")
-            .arg(include_str!("./redis-scripts/receiveMessageBatch.lua"))
+            .arg(include_str!("../scripts/receiveMessageBatch.lua"))
             .query_async(conn)
             .await?;
         let move_message_sha1: String = redis::cmd("SCRIPT")
             .arg("LOAD")
-            .arg(include_str!("./redis-scripts/moveMessage.lua"))
+            .arg(include_str!("../scripts/moveMessage.lua"))
             .query_async(conn)
             .await?;
         let receive_message_or_dlq_sha1: String = redis::cmd("SCRIPT")
             .arg("LOAD")
-            .arg(include_str!("./redis-scripts/receiveMessageOrDlq.lua"))
+            .arg(include_str!("../scripts/receiveMessageOrDlq.lua"))
             .query_async(conn)
             .await?;
         Ok(Self {
@@ -103,7 +103,7 @@ impl CachedScript {
         key1: String,
         key2: String,
         key3: String,
-    ) -> RsmqResult<R>
+    ) -> RbmqResult<R>
     where
         R: redis::FromRedisValue,
     {
@@ -125,7 +125,7 @@ impl CachedScript {
         key2: String,
         key3: String,
         should_delete: String,
-    ) -> RsmqResult<R>
+    ) -> RbmqResult<R>
     where
         R: redis::FromRedisValue,
     {
@@ -147,7 +147,7 @@ impl CachedScript {
         key_hash: String,
         key_set: String,
         time_multiplier: u64,
-    ) -> RsmqResult<R>
+    ) -> RbmqResult<R>
     where
         R: redis::FromRedisValue,
     {
@@ -168,7 +168,7 @@ impl CachedScript {
         queue_key: String,
         realtime: bool,
         items: Vec<(String, u64, Vec<u8>)>,
-    ) -> RsmqResult<i64> {
+    ) -> RbmqResult<i64> {
         let mut cmd = redis::cmd("EVALSHA");
         cmd.arg(&self.send_message_batch_sha1)
             .arg(1)
@@ -188,7 +188,7 @@ impl CachedScript {
         new_visibility_ts: String,
         should_delete: String,
         max_count: u32,
-    ) -> RsmqResult<R>
+    ) -> RbmqResult<R>
     where
         R: redis::FromRedisValue,
     {
@@ -212,7 +212,7 @@ impl CachedScript {
         dst_key: String,
         msg_id: String,
         microseconds: bool,
-    ) -> RsmqResult<i64> {
+    ) -> RbmqResult<i64> {
         redis::cmd("EVALSHA")
             .arg(&self.move_message_sha1)
             .arg(2)
@@ -235,7 +235,7 @@ impl CachedScript {
         dlq_key: String,
         max_receives: u64,
         microseconds: bool,
-    ) -> RsmqResult<R>
+    ) -> RbmqResult<R>
     where
         R: redis::FromRedisValue,
     {
@@ -254,7 +254,7 @@ impl CachedScript {
     }
 }
 
-impl<T: ConnectionLike> RsmqFunctions<T> {
+impl<T: ConnectionLike> RbmqFunctions<T> {
     /// Change the hidden time of a already sent message.
     pub async fn change_message_visibility(
         &self,
@@ -263,7 +263,7 @@ impl<T: ConnectionLike> RsmqFunctions<T> {
         message_id: &str,
         hidden: Duration,
         cached_script: &CachedScript,
-    ) -> RsmqResult<()> {
+    ) -> RbmqResult<()> {
         let hidden = get_redis_duration(Some(hidden), &Duration::from_secs(30));
 
         let queue = self.get_queue(conn, qname, false).await?;
@@ -282,7 +282,7 @@ impl<T: ConnectionLike> RsmqFunctions<T> {
         Ok(())
     }
 
-    pub async fn load_scripts(&self, conn: &mut T) -> RsmqResult<CachedScript> {
+    pub async fn load_scripts(&self, conn: &mut T) -> RbmqResult<CachedScript> {
         CachedScript::init(conn).await
     }
 
@@ -300,7 +300,7 @@ impl<T: ConnectionLike> RsmqFunctions<T> {
         hidden: Option<Duration>,
         delay: Option<Duration>,
         maxsize: Option<i64>,
-    ) -> RsmqResult<()> {
+    ) -> RbmqResult<()> {
         valid_name_format(qname)?;
 
         let key = format!("{}:{}:Q", self.ns, qname);
@@ -356,7 +356,7 @@ impl<T: ConnectionLike> RsmqFunctions<T> {
             .await?;
 
         if results[0] == 0 {
-            return Err(RsmqError::QueueExists);
+            return Err(RbmqError::QueueExists);
         }
 
         Ok(())
@@ -365,7 +365,7 @@ impl<T: ConnectionLike> RsmqFunctions<T> {
     /// Deletes a message from the queue.
     ///
     /// Important to use when you are using receive_message.
-    pub async fn delete_message(&self, conn: &mut T, qname: &str, id: &str) -> RsmqResult<bool> {
+    pub async fn delete_message(&self, conn: &mut T, qname: &str, id: &str) -> RbmqResult<bool> {
         let key = format!("{}:{}", self.ns, qname);
 
         let results: (u16, u16) = pipe()
@@ -389,7 +389,7 @@ impl<T: ConnectionLike> RsmqFunctions<T> {
     }
 
     /// Deletes the queue and all the messages on it
-    pub async fn delete_queue(&self, conn: &mut T, qname: &str) -> RsmqResult<()> {
+    pub async fn delete_queue(&self, conn: &mut T, qname: &str) -> RbmqResult<()> {
         let key = format!("{}:{}", self.ns, qname);
 
         let results: (u16, u16) = pipe()
@@ -404,7 +404,7 @@ impl<T: ConnectionLike> RsmqFunctions<T> {
             .await?;
 
         if results.0 == 0 {
-            return Err(RsmqError::QueueNotFound);
+            return Err(RbmqError::QueueNotFound);
         }
 
         Ok(())
@@ -416,7 +416,7 @@ impl<T: ConnectionLike> RsmqFunctions<T> {
         conn: &mut T,
         qname: &str,
         cached_script: &CachedScript,
-    ) -> RsmqResult<RsmqQueueAttributes> {
+    ) -> RbmqResult<RbmqQueueAttributes> {
         let key = format!("{}:{}", self.ns, qname);
 
         #[allow(clippy::type_complexity)]
@@ -451,10 +451,10 @@ impl<T: ConnectionLike> RsmqFunctions<T> {
         ) = result;
 
         if vt.is_none() {
-            return Err(RsmqError::QueueNotFound);
+            return Err(RbmqError::QueueNotFound);
         }
 
-        Ok(RsmqQueueAttributes {
+        Ok(RbmqQueueAttributes {
             vt: vt
                 .map(|dur| Duration::from_millis(dur.try_into().unwrap_or(0)))
                 .unwrap_or(Duration::ZERO),
@@ -472,7 +472,7 @@ impl<T: ConnectionLike> RsmqFunctions<T> {
     }
 
     /// Returns a list of queues in the namespace
-    pub async fn list_queues(&self, conn: &mut T) -> RsmqResult<Vec<String>> {
+    pub async fn list_queues(&self, conn: &mut T) -> RbmqResult<Vec<String>> {
         let queues = redis::cmd("SMEMBERS")
             .arg(format!("{}:QUEUES", self.ns))
             .query_async(conn)
@@ -487,7 +487,7 @@ impl<T: ConnectionLike> RsmqFunctions<T> {
         conn: &mut T,
         qname: &str,
         cached_script: &CachedScript,
-    ) -> RsmqResult<Option<RsmqMessage<E>>> {
+    ) -> RbmqResult<Option<RbmqMessage<E>>> {
         let queue = self.get_queue(conn, qname, false).await?;
 
         let result: (bool, String, Vec<u8>, u64, u64) = cached_script
@@ -504,9 +504,9 @@ impl<T: ConnectionLike> RsmqFunctions<T> {
             return Ok(None);
         }
 
-        let message = E::try_from(RedisBytes(result.2)).map_err(RsmqError::CannotDecodeMessage)?;
+        let message = E::try_from(RedisBytes(result.2)).map_err(RbmqError::CannotDecodeMessage)?;
 
-        Ok(Some(RsmqMessage {
+        Ok(Some(RbmqMessage {
             id: result.1.clone(),
             message,
             rc: result.3,
@@ -528,7 +528,7 @@ impl<T: ConnectionLike> RsmqFunctions<T> {
         qname: &str,
         hidden: Option<Duration>,
         cached_script: &CachedScript,
-    ) -> RsmqResult<Option<RsmqMessage<E>>> {
+    ) -> RbmqResult<Option<RbmqMessage<E>>> {
         let queue = self.get_queue(conn, qname, false).await?;
 
         let hidden = get_redis_duration(hidden, &queue.vt);
@@ -548,9 +548,9 @@ impl<T: ConnectionLike> RsmqFunctions<T> {
             return Ok(None);
         }
 
-        let message = E::try_from(RedisBytes(result.2)).map_err(RsmqError::CannotDecodeMessage)?;
+        let message = E::try_from(RedisBytes(result.2)).map_err(RbmqError::CannotDecodeMessage)?;
 
-        Ok(Some(RsmqMessage {
+        Ok(Some(RbmqMessage {
             id: result.1.clone(),
             message,
             rc: result.3,
@@ -570,7 +570,7 @@ impl<T: ConnectionLike> RsmqFunctions<T> {
         qname: &str,
         message: E,
         delay: Option<Duration>,
-    ) -> RsmqResult<String> {
+    ) -> RbmqResult<String> {
         let queue = self.get_queue(conn, qname, true).await?;
 
         let delay = get_redis_duration(delay, &queue.delay);
@@ -584,15 +584,15 @@ impl<T: ConnectionLike> RsmqFunctions<T> {
             .0
             .len()
             .try_into()
-            .map_err(|_| RsmqError::MessageTooLong)?;
+            .map_err(|_| RbmqError::MessageTooLong)?;
 
         if queue.maxsize != -1 && msg_len > queue.maxsize {
-            return Err(RsmqError::MessageTooLong);
+            return Err(RbmqError::MessageTooLong);
         }
 
         let queue_uid = match queue.uid {
             Some(uid) => uid,
-            None => return Err(RsmqError::QueueNotFound),
+            None => return Err(RbmqError::QueueNotFound),
         };
 
         let queue_key = format!("{}:Q", key);
@@ -641,7 +641,7 @@ impl<T: ConnectionLike> RsmqFunctions<T> {
         messages: Vec<E>,
         delay: Option<Duration>,
         cached_script: &CachedScript,
-    ) -> RsmqResult<Vec<String>> {
+    ) -> RbmqResult<Vec<String>> {
         if messages.is_empty() {
             return Ok(Vec::new());
         }
@@ -668,11 +668,11 @@ impl<T: ConnectionLike> RsmqFunctions<T> {
                 .0
                 .len()
                 .try_into()
-                .map_err(|_| RsmqError::MessageTooLong)?;
+                .map_err(|_| RbmqError::MessageTooLong)?;
             if queue.maxsize != -1 && msg_len > queue.maxsize {
-                return Err(RsmqError::MessageTooLong);
+                return Err(RbmqError::MessageTooLong);
             }
-            let uid = format!("{}{}", id_prefix, RsmqFunctions::<T>::make_id(22)?);
+            let uid = format!("{}{}", id_prefix, RbmqFunctions::<T>::make_id(22)?);
             ids.push(uid.clone());
             items.push((uid, score, bytes.0));
         }
@@ -703,7 +703,7 @@ impl<T: ConnectionLike> RsmqFunctions<T> {
         hidden: Option<Duration>,
         max_count: u32,
         cached_script: &CachedScript,
-    ) -> RsmqResult<Vec<RsmqMessage<E>>> {
+    ) -> RbmqResult<Vec<RbmqMessage<E>>> {
         if max_count == 0 {
             return Ok(Vec::new());
         }
@@ -726,12 +726,12 @@ impl<T: ConnectionLike> RsmqFunctions<T> {
 
         let mut out = Vec::with_capacity(raw.len());
         for (id, body, rc, fr) in raw {
-            let message = E::try_from(RedisBytes(body)).map_err(RsmqError::CannotDecodeMessage)?;
+            let message = E::try_from(RedisBytes(body)).map_err(RbmqError::CannotDecodeMessage)?;
             let sent = id
                 .get(0..10)
                 .and_then(|s| u64::from_str_radix(s, 36).ok())
                 .unwrap_or(0);
-            out.push(RsmqMessage {
+            out.push(RbmqMessage {
                 id,
                 message,
                 rc,
@@ -761,11 +761,11 @@ impl<T: ConnectionLike> RsmqFunctions<T> {
         dlq: &str,
         max_receives: u64,
         cached_script: &CachedScript,
-    ) -> RsmqResult<Option<RsmqMessage<E>>> {
+    ) -> RbmqResult<Option<RbmqMessage<E>>> {
         valid_name_format(qname)?;
         valid_name_format(dlq)?;
         if qname == dlq {
-            return Err(RsmqError::InvalidFormat(format!(
+            return Err(RbmqError::InvalidFormat(format!(
                 "qname and dlq must be different (got {qname:?})"
             )));
         }
@@ -791,9 +791,9 @@ impl<T: ConnectionLike> RsmqFunctions<T> {
             return Ok(None);
         }
 
-        let message = E::try_from(RedisBytes(result.2)).map_err(RsmqError::CannotDecodeMessage)?;
+        let message = E::try_from(RedisBytes(result.2)).map_err(RbmqError::CannotDecodeMessage)?;
 
-        Ok(Some(RsmqMessage {
+        Ok(Some(RbmqMessage {
             id: result.1.clone(),
             message,
             rc: result.3,
@@ -821,11 +821,11 @@ impl<T: ConnectionLike> RsmqFunctions<T> {
         msg_id: &str,
         dst: &str,
         cached_script: &CachedScript,
-    ) -> RsmqResult<bool> {
+    ) -> RbmqResult<bool> {
         valid_name_format(src)?;
         valid_name_format(dst)?;
         if src == dst {
-            return Err(RsmqError::InvalidFormat(format!(
+            return Err(RbmqError::InvalidFormat(format!(
                 "src and dst must be different (got {src:?})"
             )));
         }
@@ -858,7 +858,7 @@ impl<T: ConnectionLike> RsmqFunctions<T> {
         delay: Option<Duration>,
         maxsize: Option<i64>,
         cached_script: &CachedScript,
-    ) -> RsmqResult<RsmqQueueAttributes> {
+    ) -> RbmqResult<RbmqQueueAttributes> {
         self.get_queue(conn, qname, false).await?;
 
         let queue_name = format!("{}:{}:Q", self.ns, qname);
@@ -902,7 +902,7 @@ impl<T: ConnectionLike> RsmqFunctions<T> {
         self.get_queue_attributes(conn, qname, cached_script).await
     }
 
-    async fn get_queue(&self, conn: &mut T, qname: &str, uid: bool) -> RsmqResult<QueueDescriptor> {
+    async fn get_queue(&self, conn: &mut T, qname: &str, uid: bool) -> RbmqResult<QueueDescriptor> {
         let result: (Vec<Option<String>>, (u64, u64)) = pipe()
             .atomic()
             .cmd("HMGET")
@@ -916,7 +916,7 @@ impl<T: ConnectionLike> RsmqFunctions<T> {
 
         let sec = (result.1).0;
         let usec = (result.1).1;
-        // Message IDs always encode microseconds (matching JS rsmq).
+        // Message IDs always encode microseconds (matching JS rbmq).
         let time_us = sec * 1_000_000 + usec;
         // ts is the score unit: microseconds with break-js-comp, milliseconds otherwise.
         #[cfg(feature = "break-js-comp")]
@@ -927,38 +927,38 @@ impl<T: ConnectionLike> RsmqFunctions<T> {
         let (hmget_first, hmget_second, hmget_third) =
             match (result.0.first(), result.0.get(1), result.0.get(2)) {
                 (Some(Some(v0)), Some(Some(v1)), Some(Some(v2))) => (v0, v1, v2),
-                _ => return Err(RsmqError::QueueNotFound),
+                _ => return Err(RbmqError::QueueNotFound),
             };
 
         let quid = if uid {
-            Some(radix_36(time_us).to_string() + &RsmqFunctions::<T>::make_id(22)?)
+            Some(radix_36(time_us).to_string() + &RbmqFunctions::<T>::make_id(22)?)
         } else {
             None
         };
 
         Ok(QueueDescriptor {
-            vt: Duration::from_millis(hmget_first.parse().map_err(|_| RsmqError::CannotParseVT)?),
+            vt: Duration::from_millis(hmget_first.parse().map_err(|_| RbmqError::CannotParseVT)?),
             delay: Duration::from_millis(
                 hmget_second
                     .parse()
-                    .map_err(|_| RsmqError::CannotParseDelay)?,
+                    .map_err(|_| RbmqError::CannotParseDelay)?,
             ),
             maxsize: hmget_third
                 .parse()
-                .map_err(|_| RsmqError::CannotParseMaxsize)?,
+                .map_err(|_| RbmqError::CannotParseMaxsize)?,
             ts,
             uid: quid,
         })
     }
 
-    fn make_id(len: usize) -> RsmqResult<String> {
+    fn make_id(len: usize) -> RbmqResult<String> {
         const POSSIBLE: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
         let mut rng = rand::rng();
         let mut id = String::with_capacity(len);
         for _ in 0..len {
             let idx = (0..POSSIBLE.len())
                 .choose(&mut rng)
-                .ok_or(RsmqError::BugCreatingRandomValue)?;
+                .ok_or(RbmqError::BugCreatingRandomValue)?;
             id.push(POSSIBLE[idx] as char);
         }
         Ok(id)
@@ -969,11 +969,11 @@ fn number_in_range<T: std::cmp::PartialOrd + std::fmt::Display>(
     value: T,
     min: T,
     max: T,
-) -> RsmqResult<()> {
+) -> RbmqResult<()> {
     if value >= min && value <= max {
         Ok(())
     } else {
-        Err(RsmqError::InvalidValue(
+        Err(RbmqError::InvalidValue(
             format!("{}", value),
             format!("{}", min),
             format!("{}", max),
@@ -981,15 +981,15 @@ fn number_in_range<T: std::cmp::PartialOrd + std::fmt::Display>(
     }
 }
 
-fn valid_name_format(name: &str) -> RsmqResult<()> {
+fn valid_name_format(name: &str) -> RbmqResult<()> {
     if name.is_empty() || name.len() > 160 {
-        return Err(RsmqError::InvalidFormat(name.to_string()));
+        return Err(RbmqError::InvalidFormat(name.to_string()));
     }
     if !name
         .chars()
         .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
     {
-        return Err(RsmqError::InvalidFormat(name.to_string()));
+        return Err(RbmqError::InvalidFormat(name.to_string()));
     }
     Ok(())
 }

@@ -1,13 +1,13 @@
 [package]
-name = "rsmq_async"
-version = "18.0.0"
+name = "rbmq"
+version = "1.0.0-alpha.1"
 authors = ["David Bonet <webbonet@gmail.com>"]
 edition = "2021"
 license = "MIT"
-description = "Async RSMQ port to rust. RSMQ is a simple redis queue system that works in any redis v2.4+. It contains the same methods as the original one in https://github.com/smrchy/rsmq"
+description = "Redis Better Message Queue. A small, atomic, Redis-backed queue. All semantics live in Lua scripts shared with the Node.js client. Successor to rsmq_async, no JS-rsmq wire compatibility."
 homepage = "https://github.com/DavidBM/rsmq-async-rs"
 repository = "https://github.com/DavidBM/rsmq-async-rs"
-documentation = "https://docs.rs/rsmq_async/"
+documentation = "https://docs.rs/rbmq/"
 readme = "README.md"
 
 [dependencies]

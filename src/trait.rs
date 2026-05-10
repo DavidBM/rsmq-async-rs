@@ -1,11 +1,11 @@
 use crate::types::RedisBytes;
-use crate::types::{RsmqMessage, RsmqQueueAttributes};
-use crate::RsmqResult;
+use crate::types::{RbmqMessage, RbmqQueueAttributes};
+use crate::RbmqResult;
 use core::convert::TryFrom;
 use std::future::Future;
 use std::time::Duration;
 
-pub trait RsmqConnection {
+pub trait RbmqConnection {
     /// Change the hidden time of a already sent message.
     ///
     /// `hidden` has a max time of 9_999_999 for compatibility reasons to this library JS version counterpart
@@ -14,7 +14,7 @@ pub trait RsmqConnection {
         qname: &str,
         message_id: &str,
         hidden: Duration,
-    ) -> impl Future<Output = RsmqResult<()>> + Send;
+    ) -> impl Future<Output = RbmqResult<()>> + Send;
 
     /// Creates a new queue. Attributes can be later modified with "set_queue_attributes" method
     ///
@@ -31,7 +31,7 @@ pub trait RsmqConnection {
         hidden: Option<Duration>,
         delay: Option<Duration>,
         maxsize: Option<i64>,
-    ) -> impl Future<Output = RsmqResult<()>> + Send;
+    ) -> impl Future<Output = RbmqResult<()>> + Send;
 
     /// Deletes a message from the queue.
     ///
@@ -40,25 +40,25 @@ pub trait RsmqConnection {
         &mut self,
         qname: &str,
         id: &str,
-    ) -> impl Future<Output = RsmqResult<bool>> + Send;
+    ) -> impl Future<Output = RbmqResult<bool>> + Send;
 
     /// Deletes the queue and all the messages on it
-    fn delete_queue(&mut self, qname: &str) -> impl Future<Output = RsmqResult<()>> + Send;
+    fn delete_queue(&mut self, qname: &str) -> impl Future<Output = RbmqResult<()>> + Send;
 
     /// Returns the queue attributes and statistics
     fn get_queue_attributes(
         &mut self,
         qname: &str,
-    ) -> impl Future<Output = RsmqResult<RsmqQueueAttributes>> + Send;
+    ) -> impl Future<Output = RbmqResult<RbmqQueueAttributes>> + Send;
 
     /// Returns a list of queues in the namespace
-    fn list_queues(&mut self) -> impl Future<Output = RsmqResult<Vec<String>>> + Send;
+    fn list_queues(&mut self) -> impl Future<Output = RbmqResult<Vec<String>>> + Send;
 
     /// Deletes and returns a message. Be aware that using this you may end with deleted & unprocessed messages.
     fn pop_message<E: TryFrom<RedisBytes, Error = Vec<u8>>>(
         &mut self,
         qname: &str,
-    ) -> impl Future<Output = RsmqResult<Option<RsmqMessage<E>>>> + Send;
+    ) -> impl Future<Output = RbmqResult<Option<RbmqMessage<E>>>> + Send;
 
     /// Returns a message. The message stays hidden for some time (defined by "hidden" argument or the queue
     /// settings). After that time, the message will be redelivered. In order to avoid the redelivery, you need to use
@@ -69,7 +69,7 @@ pub trait RsmqConnection {
         &mut self,
         qname: &str,
         hidden: Option<Duration>,
-    ) -> impl Future<Output = RsmqResult<Option<RsmqMessage<E>>>> + Send;
+    ) -> impl Future<Output = RbmqResult<Option<RbmqMessage<E>>>> + Send;
 
     /// Sends a message to the queue. The message will be delayed some time (controlled by the "delayed" argument or
     /// the queue settings) before being delivered to a client.
@@ -78,20 +78,20 @@ pub trait RsmqConnection {
         qname: &str,
         message: E,
         delay: Option<Duration>,
-    ) -> impl Future<Output = RsmqResult<String>> + Send;
+    ) -> impl Future<Output = RbmqResult<String>> + Send;
 
     /// Sends a batch of messages to the queue. Returns the assigned message IDs in input order.
     ///
     /// The default impl loops `send_message`, which means a mid-batch error leaves whatever
-    /// succeeded before that point in the queue. Implementations like [`crate::Rsmq`] and
-    /// [`crate::PooledRsmq`] override this with a single Lua script for full atomicity (either
+    /// succeeded before that point in the queue. Implementations like [`crate::Rbmq`] and
+    /// [`crate::PooledRbmq`] override this with a single Lua script for full atomicity (either
     /// all messages land or none do) and at most one realtime PUBLISH per call.
     fn send_message_batch<E: Into<RedisBytes> + Send>(
         &mut self,
         qname: &str,
         messages: Vec<E>,
         delay: Option<Duration>,
-    ) -> impl Future<Output = RsmqResult<Vec<String>>> + Send
+    ) -> impl Future<Output = RbmqResult<Vec<String>>> + Send
     where
         Self: Send,
     {
@@ -110,15 +110,15 @@ pub trait RsmqConnection {
     /// Receives up to `max_count` messages, sharing the same hidden duration. Returns at most
     /// `max_count` messages but may return fewer (or zero) if not enough are visible.
     ///
-    /// The default impl loops `receive_message`. Implementations like [`crate::Rsmq`] and
-    /// [`crate::PooledRsmq`] override this with a single Lua script that picks all messages
+    /// The default impl loops `receive_message`. Implementations like [`crate::Rbmq`] and
+    /// [`crate::PooledRbmq`] override this with a single Lua script that picks all messages
     /// in one ZRANGE BYSCORE pass.
     fn receive_message_batch<E: TryFrom<RedisBytes, Error = Vec<u8>> + Send>(
         &mut self,
         qname: &str,
         hidden: Option<Duration>,
         max_count: u32,
-    ) -> impl Future<Output = RsmqResult<Vec<RsmqMessage<E>>>> + Send
+    ) -> impl Future<Output = RbmqResult<Vec<RbmqMessage<E>>>> + Send
     where
         Self: Send,
     {
@@ -153,7 +153,7 @@ pub trait RsmqConnection {
         hidden: Option<Duration>,
         delay: Option<Duration>,
         maxsize: Option<i64>,
-    ) -> impl Future<Output = RsmqResult<RsmqQueueAttributes>> + Send;
+    ) -> impl Future<Output = RbmqResult<RbmqQueueAttributes>> + Send;
 
     /// Atomically moves a message from `src` to `dst`, preserving its body and the
     /// `:rc` / `:fr` metadata. The message becomes visible in `dst` immediately
@@ -168,7 +168,7 @@ pub trait RsmqConnection {
         src: &str,
         msg_id: &str,
         dst: &str,
-    ) -> impl Future<Output = RsmqResult<bool>> + Send;
+    ) -> impl Future<Output = RbmqResult<bool>> + Send;
 
     /// Receives the next visible message, but transparently routes any message whose
     /// post-increment `rc` exceeds `max_receives` to `dlq` (preserving `:rc` and `:fr`)
@@ -184,11 +184,11 @@ pub trait RsmqConnection {
         hidden: Option<Duration>,
         dlq: &str,
         max_receives: u64,
-    ) -> impl Future<Output = RsmqResult<Option<RsmqMessage<E>>>> + Send;
+    ) -> impl Future<Output = RbmqResult<Option<RbmqMessage<E>>>> + Send;
 }
 
 #[cfg(feature = "sync")]
-pub trait RsmqConnectionSync {
+pub trait RbmqConnectionSync {
     /// Change the hidden time of a already sent message.
     ///
     /// # Arguments
@@ -200,7 +200,7 @@ pub trait RsmqConnectionSync {
         qname: &str,
         message_id: &str,
         hidden: Duration,
-    ) -> RsmqResult<()>;
+    ) -> RbmqResult<()>;
 
     /// Creates a new queue. Attributes can be later modified with "set_queue_attributes" method
     ///
@@ -215,7 +215,7 @@ pub trait RsmqConnectionSync {
         hidden: Option<Duration>,
         delay: Option<Duration>,
         maxsize: Option<i64>,
-    ) -> RsmqResult<()>;
+    ) -> RbmqResult<()>;
 
     /// Deletes a message from the queue.
     ///
@@ -224,22 +224,22 @@ pub trait RsmqConnectionSync {
     /// # Arguments
     /// * `qname` - Name of the queue
     /// * `id` - ID of the message to delete
-    fn delete_message(&mut self, qname: &str, id: &str) -> RsmqResult<bool>;
+    fn delete_message(&mut self, qname: &str, id: &str) -> RbmqResult<bool>;
 
     /// Deletes the queue and all messages in it
     ///
     /// # Arguments
     /// * `qname` - Name of the queue to delete
-    fn delete_queue(&mut self, qname: &str) -> RsmqResult<()>;
+    fn delete_queue(&mut self, qname: &str) -> RbmqResult<()>;
 
     /// Returns the queue attributes and statistics
     ///
     /// # Arguments
     /// * `qname` - Name of the queue
-    fn get_queue_attributes(&mut self, qname: &str) -> RsmqResult<RsmqQueueAttributes>;
+    fn get_queue_attributes(&mut self, qname: &str) -> RbmqResult<RbmqQueueAttributes>;
 
     /// Returns a list of queues in the namespace
-    fn list_queues(&mut self) -> RsmqResult<Vec<String>>;
+    fn list_queues(&mut self) -> RbmqResult<Vec<String>>;
 
     /// Deletes and returns a message. Be aware that using this you may end with deleted & unprocessed messages.
     ///
@@ -248,7 +248,7 @@ pub trait RsmqConnectionSync {
     fn pop_message<E: TryFrom<RedisBytes, Error = Vec<u8>>>(
         &mut self,
         qname: &str,
-    ) -> RsmqResult<Option<RsmqMessage<E>>>;
+    ) -> RbmqResult<Option<RbmqMessage<E>>>;
 
     /// Returns a message. The message stays hidden for some time (defined by "hidden" argument or the queue
     /// settings). After that time, the message will be redelivered. To avoid redelivery, use "delete_message"
@@ -261,7 +261,7 @@ pub trait RsmqConnectionSync {
         &mut self,
         qname: &str,
         hidden: Option<Duration>,
-    ) -> RsmqResult<Option<RsmqMessage<E>>>;
+    ) -> RbmqResult<Option<RbmqMessage<E>>>;
 
     /// Sends a message to the queue. The message will be delayed some time (controlled by the "delayed" argument or
     /// the queue settings) before being delivered to a client.
@@ -275,7 +275,7 @@ pub trait RsmqConnectionSync {
         qname: &str,
         message: E,
         delay: Option<Duration>,
-    ) -> RsmqResult<String>;
+    ) -> RbmqResult<String>;
 
     /// Sends a batch of messages. Returns assigned IDs in input order. The default impl loops
     /// `send_message`; specialized implementations atomically insert via a single Lua script.
@@ -284,7 +284,7 @@ pub trait RsmqConnectionSync {
         qname: &str,
         messages: Vec<E>,
         delay: Option<Duration>,
-    ) -> RsmqResult<Vec<String>> {
+    ) -> RbmqResult<Vec<String>> {
         if messages.is_empty() {
             return Ok(Vec::new());
         }
@@ -303,7 +303,7 @@ pub trait RsmqConnectionSync {
         qname: &str,
         hidden: Option<Duration>,
         max_count: u32,
-    ) -> RsmqResult<Vec<RsmqMessage<E>>> {
+    ) -> RbmqResult<Vec<RbmqMessage<E>>> {
         if max_count == 0 {
             return Ok(Vec::new());
         }
@@ -331,19 +331,19 @@ pub trait RsmqConnectionSync {
         hidden: Option<Duration>,
         delay: Option<Duration>,
         maxsize: Option<i64>,
-    ) -> RsmqResult<RsmqQueueAttributes>;
+    ) -> RbmqResult<RbmqQueueAttributes>;
 
     /// Atomically moves a message from `src` to `dst`. See the async counterpart
-    /// [`RsmqConnection::move_message`] for the full contract.
-    fn move_message(&mut self, src: &str, msg_id: &str, dst: &str) -> RsmqResult<bool>;
+    /// [`RbmqConnection::move_message`] for the full contract.
+    fn move_message(&mut self, src: &str, msg_id: &str, dst: &str) -> RbmqResult<bool>;
 
     /// Atomically receives a message, routing over-budget messages to `dlq`.
-    /// See the async counterpart [`RsmqConnection::receive_message_or_dlq`].
+    /// See the async counterpart [`RbmqConnection::receive_message_or_dlq`].
     fn receive_message_or_dlq<E: TryFrom<RedisBytes, Error = Vec<u8>>>(
         &mut self,
         qname: &str,
         hidden: Option<Duration>,
         dlq: &str,
         max_receives: u64,
-    ) -> RsmqResult<Option<RsmqMessage<E>>>;
+    ) -> RbmqResult<Option<RbmqMessage<E>>>;
 }

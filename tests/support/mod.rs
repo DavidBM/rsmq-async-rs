@@ -138,7 +138,7 @@ impl TestContext {
             }
         }
         let ns: u64 = rand::rng().random();
-        let ns = format!("rsmqtest{:016x}", ns);
+        let ns = format!("rbmqtest{:016x}", ns);
 
         TestContext { server, client, ns }
     }

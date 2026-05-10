@@ -6,7 +6,7 @@
 //!
 //!     cargo run --example custom_type
 
-use rsmq_async::{RedisBytes, Rsmq, RsmqConnection, RsmqError};
+use rbmq::{RedisBytes, Rbmq, RbmqConnection, RbmqError};
 
 #[derive(Debug)]
 struct Job {
@@ -40,14 +40,14 @@ impl TryFrom<RedisBytes> for Job {
 }
 
 #[tokio::main]
-async fn main() -> Result<(), RsmqError> {
-    let mut rsmq = Rsmq::new(Default::default()).await?;
+async fn main() -> Result<(), RbmqError> {
+    let mut rbmq = Rbmq::new(Default::default()).await?;
     let qname = "example_custom_type";
 
-    let _ = rsmq.delete_queue(qname).await;
-    rsmq.create_queue(qname, None, None, None).await?;
+    let _ = rbmq.delete_queue(qname).await;
+    rbmq.create_queue(qname, None, None, None).await?;
 
-    rsmq.send_message(
+    rbmq.send_message(
         qname,
         Job {
             id: 42,
@@ -57,11 +57,11 @@ async fn main() -> Result<(), RsmqError> {
     )
     .await?;
 
-    if let Some(msg) = rsmq.receive_message::<Job>(qname, None).await? {
+    if let Some(msg) = rbmq.receive_message::<Job>(qname, None).await? {
         println!("received: {:?}", msg.message);
-        rsmq.delete_message(qname, &msg.id).await?;
+        rbmq.delete_message(qname, &msg.id).await?;
     }
 
-    rsmq.delete_queue(qname).await?;
+    rbmq.delete_queue(qname).await?;
     Ok(())
 }

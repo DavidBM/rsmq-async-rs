@@ -2,13 +2,13 @@ use bb8::RunError;
 use redis::RedisError;
 use thiserror::Error as ThisError;
 
-/// This is an alias of `Result<T, RsmqError>` for simplicity
-pub type RsmqResult<T> = Result<T, RsmqError>;
+/// This is an alias of `Result<T, RbmqError>` for simplicity
+pub type RbmqResult<T> = Result<T, RbmqError>;
 
 /// This is the error type for any oprtation with this
 /// library. It derives `ThisError`
 #[derive(ThisError, Debug, PartialEq)]
-pub enum RsmqError {
+pub enum RbmqError {
     #[error("Pool run error: `{0:?}`")]
     RunError(#[from] RunError<RedisError>),
     #[error("Redis error: `{0:?}`")]
@@ -49,9 +49,9 @@ pub enum RsmqError {
 }
 
 #[cfg(feature = "serde")]
-impl From<serde_json::Error> for RsmqError {
+impl From<serde_json::Error> for RbmqError {
     fn from(err: serde_json::Error) -> Self {
-        RsmqError::JsonError(Different(err))
+        RbmqError::JsonError(Different(err))
     }
 }
 

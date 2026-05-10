@@ -10,9 +10,9 @@ pub(crate) struct QueueDescriptor {
     pub uid: Option<String>,
 }
 
-/// Options for creating a new RSMQ instance.
+/// Options for creating a new rbmq instance.
 #[derive(Debug, Clone)]
-pub struct RsmqOptions {
+pub struct RbmqOptions {
     /// Redis host
     pub host: String,
     /// Redis port
@@ -26,30 +26,30 @@ pub struct RsmqOptions {
     pub username: Option<String>,
     /// Redis password
     pub password: Option<String>,
-    /// RSMQ namespace (you can have several. "rsmq" by default)
+    /// Key namespace (you can have several. "rbmq" by default)
     pub ns: String,
-    /// Redisa protocol. Defaults to RESP2
+    /// Redis protocol. Defaults to RESP2
     pub protocol: ProtocolVersion,
 }
 
-impl Default for RsmqOptions {
+impl Default for RbmqOptions {
     fn default() -> Self {
-        RsmqOptions {
+        RbmqOptions {
             host: "localhost".to_string(),
             port: 6379,
             db: 0,
             realtime: false,
             username: None,
             password: None,
-            ns: "rsmq".to_string(),
+            ns: "rbmq".to_string(),
             protocol: ProtocolVersion::RESP2,
         }
     }
 }
 
-/// A new RSMQ message. You will get this when using pop_message or receive_message methods
+/// A new rbmq message. You will get this when using pop_message or receive_message methods
 #[derive(Debug, Clone)]
-pub struct RsmqMessage<T = String> {
+pub struct RbmqMessage<T = String> {
     /// Message id. Used later for change_message_visibility and delete_message
     pub id: String,
     /// Message content.
@@ -64,7 +64,7 @@ pub struct RsmqMessage<T = String> {
 
 /// Struct defining a queue. They are set on "create_queue" and "set_queue_attributes"
 #[derive(Debug, Clone)]
-pub struct RsmqQueueAttributes {
+pub struct RbmqQueueAttributes {
     /// How long the message will be hidden when is received by a client
     pub vt: Duration,
     /// How many second will take until the message is delivered to a client
@@ -102,7 +102,7 @@ pub struct RsmqQueueAttributes {
 ///
 /// ```rust,ignore
 /// use std::convert::TryFrom;
-/// use rsmq_async::RedisBytes;
+/// use rbmq::RedisBytes;
 ///
 /// impl TryFrom<RedisBytes> for String {
 ///     type Error = Vec<u8>;

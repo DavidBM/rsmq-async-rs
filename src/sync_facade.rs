@@ -1,7 +1,7 @@
-use crate::functions::{CachedScript, RsmqFunctions};
-use crate::r#trait::RsmqConnectionSync;
-use crate::types::{RedisBytes, RsmqMessage, RsmqOptions, RsmqQueueAttributes};
-use crate::{RsmqError, RsmqResult};
+use crate::functions::{CachedScript, RbmqFunctions};
+use crate::r#trait::RbmqConnectionSync;
+use crate::types::{RedisBytes, RbmqMessage, RbmqOptions, RbmqQueueAttributes};
+use crate::{RbmqError, RbmqResult};
 use core::convert::TryFrom;
 use core::marker::PhantomData;
 use std::sync::Arc;
@@ -18,20 +18,20 @@ impl std::fmt::Debug for RedisConnection {
 }
 
 #[derive(Debug, Clone)]
-pub struct RsmqSync {
+pub struct RbmqSync {
     connection: RedisConnection,
-    functions: RsmqFunctions<redis::aio::MultiplexedConnection>,
+    functions: RbmqFunctions<redis::aio::MultiplexedConnection>,
     runner: Arc<Runtime>,
     scripts: CachedScript,
 }
 
-impl RsmqSync {
-    /// Creates a new RSMQ instance, including its connection
-    pub async fn new(options: RsmqOptions) -> RsmqResult<RsmqSync> {
+impl RbmqSync {
+    /// Creates a new rbmq instance, including its connection
+    pub async fn new(options: RbmqOptions) -> RbmqResult<RbmqSync> {
         let runner = tokio::runtime::Builder::new_current_thread()
             .enable_all()
             .build()
-            .map_err(|e| RsmqError::TokioStart(e.into()))?;
+            .map_err(|e| RbmqError::TokioStart(e.into()))?;
 
         let mut redis_info = redis::RedisConnectionInfo::default()
             .set_db(options.db.into())
@@ -48,7 +48,7 @@ impl RsmqSync {
 
         let client = redis::Client::open(conn_info)?;
 
-        let functions = RsmqFunctions {
+        let functions = RbmqFunctions {
             ns: options.ns,
             realtime: options.realtime,
             conn: PhantomData,
@@ -57,10 +57,10 @@ impl RsmqSync {
         let (connection, scripts) = runner.block_on(async {
             let mut conn = client.get_multiplexed_async_connection().await?;
             let scripts = functions.load_scripts(&mut conn).await?;
-            Result::<_, RsmqError>::Ok((conn, scripts))
+            Result::<_, RbmqError>::Ok((conn, scripts))
         })?;
 
-        Ok(RsmqSync {
+        Ok(RbmqSync {
             connection: RedisConnection(connection),
             functions,
             runner: Arc::new(runner),
@@ -69,13 +69,13 @@ impl RsmqSync {
     }
 }
 
-impl RsmqConnectionSync for RsmqSync {
+impl RbmqConnectionSync for RbmqSync {
     fn change_message_visibility(
         &mut self,
         qname: &str,
         message_id: &str,
         hidden: Duration,
-    ) -> RsmqResult<()> {
+    ) -> RbmqResult<()> {
         self.runner.block_on(async {
             self.functions
                 .change_message_visibility(
@@ -95,7 +95,7 @@ impl RsmqConnectionSync for RsmqSync {
         hidden: Option<Duration>,
         delay: Option<Duration>,
         maxsize: Option<i64>,
-    ) -> RsmqResult<()> {
+    ) -> RbmqResult<()> {
         self.runner.block_on(async {
             self.functions
                 .create_queue(&mut self.connection.0, qname, hidden, delay, maxsize)
@@ -103,21 +103,21 @@ impl RsmqConnectionSync for RsmqSync {
         })
     }
 
-    fn delete_message(&mut self, qname: &str, id: &str) -> RsmqResult<bool> {
+    fn delete_message(&mut self, qname: &str, id: &str) -> RbmqResult<bool> {
         self.runner.block_on(async {
             self.functions
                 .delete_message(&mut self.connection.0, qname, id)
                 .await
         })
     }
-    fn delete_queue(&mut self, qname: &str) -> RsmqResult<()> {
+    fn delete_queue(&mut self, qname: &str) -> RbmqResult<()> {
         self.runner.block_on(async {
             self.functions
                 .delete_queue(&mut self.connection.0, qname)
                 .await
         })
     }
-    fn get_queue_attributes(&mut self, qname: &str) -> RsmqResult<RsmqQueueAttributes> {
+    fn get_queue_attributes(&mut self, qname: &str) -> RbmqResult<RbmqQueueAttributes> {
         self.runner.block_on(async {
             self.functions
                 .get_queue_attributes(&mut self.connection.0, qname, &self.scripts)
@@ -125,7 +125,7 @@ impl RsmqConnectionSync for RsmqSync {
         })
     }
 
-    fn list_queues(&mut self) -> RsmqResult<Vec<String>> {
+    fn list_queues(&mut self) -> RbmqResult<Vec<String>> {
         self.runner
             .block_on(async { self.functions.list_queues(&mut self.connection.0).await })
     }
@@ -133,7 +133,7 @@ impl RsmqConnectionSync for RsmqSync {
     fn pop_message<E: TryFrom<RedisBytes, Error = Vec<u8>>>(
         &mut self,
         qname: &str,
-    ) -> RsmqResult<Option<RsmqMessage<E>>> {
+    ) -> RbmqResult<Option<RbmqMessage<E>>> {
         self.runner.block_on(async {
             self.functions
                 .pop_message::<E>(&mut self.connection.0, qname, &self.scripts)
@@ -145,7 +145,7 @@ impl RsmqConnectionSync for RsmqSync {
         &mut self,
         qname: &str,
         hidden: Option<Duration>,
-    ) -> RsmqResult<Option<RsmqMessage<E>>> {
+    ) -> RbmqResult<Option<RbmqMessage<E>>> {
         self.runner.block_on(async {
             self.functions
                 .receive_message::<E>(&mut self.connection.0, qname, hidden, &self.scripts)
@@ -158,7 +158,7 @@ impl RsmqConnectionSync for RsmqSync {
         qname: &str,
         message: E,
         delay: Option<Duration>,
-    ) -> RsmqResult<String> {
+    ) -> RbmqResult<String> {
         self.runner.block_on(async {
             self.functions
                 .send_message(&mut self.connection.0, qname, message, delay)
@@ -171,7 +171,7 @@ impl RsmqConnectionSync for RsmqSync {
         qname: &str,
         messages: Vec<E>,
         delay: Option<Duration>,
-    ) -> RsmqResult<Vec<String>> {
+    ) -> RbmqResult<Vec<String>> {
         self.runner.block_on(async {
             self.functions
                 .send_message_batch(
@@ -190,7 +190,7 @@ impl RsmqConnectionSync for RsmqSync {
         qname: &str,
         hidden: Option<Duration>,
         max_count: u32,
-    ) -> RsmqResult<Vec<RsmqMessage<E>>> {
+    ) -> RbmqResult<Vec<RbmqMessage<E>>> {
         self.runner.block_on(async {
             self.functions
                 .receive_message_batch::<E>(
@@ -210,7 +210,7 @@ impl RsmqConnectionSync for RsmqSync {
         hidden: Option<Duration>,
         delay: Option<Duration>,
         maxsize: Option<i64>,
-    ) -> RsmqResult<RsmqQueueAttributes> {
+    ) -> RbmqResult<RbmqQueueAttributes> {
         self.runner.block_on(async {
             self.functions
                 .set_queue_attributes(
@@ -225,7 +225,7 @@ impl RsmqConnectionSync for RsmqSync {
         })
     }
 
-    fn move_message(&mut self, src: &str, msg_id: &str, dst: &str) -> RsmqResult<bool> {
+    fn move_message(&mut self, src: &str, msg_id: &str, dst: &str) -> RbmqResult<bool> {
         self.runner.block_on(async {
             self.functions
                 .move_message(&mut self.connection.0, src, msg_id, dst, &self.scripts)
@@ -239,7 +239,7 @@ impl RsmqConnectionSync for RsmqSync {
         hidden: Option<Duration>,
         dlq: &str,
         max_receives: u64,
-    ) -> RsmqResult<Option<RsmqMessage<E>>> {
+    ) -> RbmqResult<Option<RbmqMessage<E>>> {
         self.runner.block_on(async {
             self.functions
                 .receive_message_or_dlq::<E>(
