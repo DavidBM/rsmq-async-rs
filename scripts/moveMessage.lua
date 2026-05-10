@@ -2,7 +2,6 @@
 -- KEYS[1]: ns:src     (source sorted set)
 -- KEYS[2]: ns:dst     (destination sorted set)
 -- ARGV[1]: message id
--- ARGV[2]: "1" for microsecond scores, "0" for millisecond
 -- Returns 1 if moved, 0 if the message did not exist in the source.
 
 local src_msg = KEYS[1] .. ":msg"
@@ -15,27 +14,24 @@ if not packed then
 end
 
 local time = redis.call("TIME")
-local score
-if ARGV[2] == "1" then
-    score = tonumber(time[1]) * 1000000 + tonumber(time[2])
-else
-    score = tonumber(time[1]) * 1000 + math.floor(tonumber(time[2]) / 1000)
-end
+local sec_str = time[1]
+local usec_str = time[2]
+local time_us_str = sec_str .. string.rep("0", 6 - #usec_str) .. usec_str
+local now_us = tonumber(time[1]) * 1000000 + tonumber(time[2])
 
--- If src had rc>0 but fr=0 (message moved before its first delivery), patch fr=score
--- so a subsequent receive on dst is consistent.
+-- If src had rc>0 but fr=0, patch fr to current time so dst remains consistent.
 local p1 = string.find(packed, "\n", 1, true)
 local p2 = string.find(packed, "\n", p1 + 1, true)
 local p3 = string.find(packed, "\n", p2 + 1, true)
 local rc = tonumber(string.sub(packed, 1, p1 - 1))
 local fr_str = string.sub(packed, p1 + 1, p2 - 1)
-if rc > 0 and tonumber(fr_str) == 0 then
+if rc > 0 and fr_str == "0" then
     local sent_str = string.sub(packed, p2 + 1, p3 - 1)
     local body = string.sub(packed, p3 + 1)
-    packed = rc .. "\n" .. score .. "\n" .. sent_str .. "\n" .. body
+    packed = rc .. "\n" .. time_us_str .. "\n" .. sent_str .. "\n" .. body
 end
 
-redis.call("ZADD", KEYS[2], score, ARGV[1])
+redis.call("ZADD", KEYS[2], now_us, ARGV[1])
 redis.call("HSET", dst_msg, ARGV[1], packed)
 redis.call("HINCRBY", dst_cfg, "totalsent", 1)
 

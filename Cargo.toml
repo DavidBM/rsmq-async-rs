@@ -37,7 +37,6 @@ default = ["tokio-comp", "sync", "serde", "worker"]
 sync = ["dep:tokio"]
 tokio-comp = ["redis/tokio-comp"]
 smol-comp = ["redis/smol-comp"]
-break-js-comp = []
 serde = ["dep:serde", "dep:serde_json"]
 # Async worker helper. Tokio-only for now (uses tokio::time and tokio::select!).
 worker = [

@@ -25,9 +25,9 @@ jobs:
       fail-fast: false
       matrix:
         features:
-          - "tokio-comp,sync,serde"
-          - "tokio-comp,sync,serde,break-js-comp"
+          - "tokio-comp,sync,serde,worker"
           - "tokio-comp,sync"
+          - "tokio-comp"
 
     steps:
       - uses: actions/checkout@v4

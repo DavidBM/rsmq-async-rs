@@ -2,8 +2,7 @@
 -- KEYS[1]: ns:qname           (sorted set key)
 -- ARGV[1]: hidden ms ("-1" => use queue default `vt`)
 -- ARGV[2]: "true" or "false"  (delete after receive)
--- ARGV[3]: max_count (positive integer as string)
--- ARGV[4]: "1" microsecond scores, "0" millisecond
+-- ARGV[3]: max_count
 -- Returns an array of { id, body, rc, fr, sent } tuples.
 -- Errors: "QueueNotFound" if the queue doesn't exist.
 
@@ -25,26 +24,10 @@ local time = redis.call("TIME")
 local sec_str = time[1]
 local usec_str = time[2]
 local time_us_str = sec_str .. string.rep("0", 6 - #usec_str) .. usec_str
+local now_us = tonumber(time[1]) * 1000000 + tonumber(time[2])
+local new_score = now_us + (hidden_ms or 0) * 1000
 
-local now_score
-local scaled_hidden
-if ARGV[4] == "1" then
-    now_score = tonumber(time[1]) * 1000000 + tonumber(time[2])
-    scaled_hidden = (hidden_ms or 0) * 1000
-else
-    now_score = tonumber(time[1]) * 1000 + math.floor(tonumber(time[2]) / 1000)
-    scaled_hidden = hidden_ms or 0
-end
-
-local fr_now_str
-if ARGV[4] == "1" then
-    fr_now_str = time_us_str
-else
-    local usec_padded = string.rep("0", 6 - #usec_str) .. usec_str
-    fr_now_str = sec_str .. string.sub(usec_padded, 1, 3)
-end
-
-local ids = redis.call("ZRANGE", KEYS[1], "-inf", now_score, "BYSCORE", "LIMIT", 0, max_count)
+local ids = redis.call("ZRANGE", KEYS[1], "-inf", now_us, "BYSCORE", "LIMIT", 0, max_count)
 local results = {}
 
 for i = 1, #ids do
@@ -64,8 +47,8 @@ for i = 1, #ids do
 
         local fr_out_str
         if rc == 1 then
-            fr_str = fr_now_str
-            fr_out_str = fr_now_str
+            fr_str = time_us_str
+            fr_out_str = time_us_str
         else
             fr_out_str = fr_str
         end
@@ -75,7 +58,7 @@ for i = 1, #ids do
             redis.call("HDEL", msg, id)
         else
             redis.call("HSET", msg, id, rc .. "\n" .. fr_str .. "\n" .. sent_str .. "\n" .. body)
-            redis.call("ZADD", KEYS[1], now_score + scaled_hidden, id)
+            redis.call("ZADD", KEYS[1], new_score, id)
         end
 
         table.insert(results, { id, body, rc, fr_out_str, sent_str })

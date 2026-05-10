@@ -76,9 +76,6 @@
 //!   `RbmqError::JsonError` variant. Pulls in `serde` and `serde_json`.
 //! - `worker` *(default)* — enables [`Worker`], a polling/heartbeat/realtime-aware async
 //!   worker helper with a queue-name router. Tokio-only.
-//! - `break-js-comp` — full microsecond-precision scores. Off by default to stay wire-compatible
-//!   with the JS library; **don't mix** a `break-js-comp` Rust producer with a JS server on the
-//!   same queue.
 //!
 
 #![forbid(unsafe_code)]

@@ -9,13 +9,9 @@ use redis::aio::ConnectionLike;
 use std::convert::TryInto;
 use std::time::Duration;
 
-const JS_COMPAT_MAX_TIME_MILLIS: u64 = 9_999_999_000;
-
-// 1 = microsecond scores, 0 = millisecond scores. Passed to Lua.
-#[cfg(feature = "break-js-comp")]
-const USE_MICROSECONDS: &str = "1";
-#[cfg(not(feature = "break-js-comp"))]
-const USE_MICROSECONDS: &str = "0";
+// Defensive cap on duration arguments (~100 years). Anything above is almost certainly
+// a bug or an integer overflow, not a legitimate vt/delay/hidden value.
+const MAX_DURATION_MS: u64 = 100 * 365 * 24 * 60 * 60 * 1000;
 
 // Sentinel for "use the queue's stored default value" passed in as ARGV strings.
 const USE_DEFAULT: &str = "-1";
@@ -147,7 +143,7 @@ impl<T: ConnectionLike> RbmqFunctions<T> {
         cached_script: &CachedScript,
     ) -> RbmqResult<()> {
         let hidden_ms = duration_ms(Some(hidden), &Duration::from_secs(30));
-        number_in_range(hidden_ms, 0, JS_COMPAT_MAX_TIME_MILLIS)?;
+        number_in_range(hidden_ms, 0, MAX_DURATION_MS)?;
 
         let _: i64 = redis::cmd("EVALSHA")
             .arg(&cached_script.change_message_visibility)
@@ -155,7 +151,6 @@ impl<T: ConnectionLike> RbmqFunctions<T> {
             .arg(self.zset_key(qname))
             .arg(message_id)
             .arg(hidden_ms.to_string())
-            .arg(USE_MICROSECONDS)
             .query_async(conn)
             .await
             .map_err(map_script_error)?;
@@ -177,8 +172,8 @@ impl<T: ConnectionLike> RbmqFunctions<T> {
         let delay_ms = duration_ms(delay, &Duration::ZERO);
         let maxsize = maxsize.unwrap_or(65536);
 
-        number_in_range(hidden_ms, 0, JS_COMPAT_MAX_TIME_MILLIS)?;
-        number_in_range(delay_ms, 0, JS_COMPAT_MAX_TIME_MILLIS)?;
+        number_in_range(hidden_ms, 0, MAX_DURATION_MS)?;
+        number_in_range(delay_ms, 0, MAX_DURATION_MS)?;
         if let Err(e) = number_in_range(maxsize, 1024, 65536) {
             if maxsize != -1 {
                 return Err(e);
@@ -270,7 +265,6 @@ impl<T: ConnectionLike> RbmqFunctions<T> {
             .arg(2)
             .arg(self.cfg_key(qname))
             .arg(self.zset_key(qname))
-            .arg(USE_MICROSECONDS)
             .query_async(conn)
             .await
             .map_err(map_script_error)?;
@@ -343,7 +337,7 @@ impl<T: ConnectionLike> RbmqFunctions<T> {
             number_in_range(
                 u64::try_from(h.as_millis()).unwrap_or(u64::MAX),
                 0,
-                JS_COMPAT_MAX_TIME_MILLIS,
+                MAX_DURATION_MS,
             )?;
         }
         self.receive_inner(conn, qname, hidden, false, cached_script)
@@ -371,7 +365,6 @@ impl<T: ConnectionLike> RbmqFunctions<T> {
             .arg(self.zset_key(qname))
             .arg(hidden_arg)
             .arg(if should_delete { "true" } else { "false" })
-            .arg(USE_MICROSECONDS)
             .query_async(conn)
             .await
             .map_err(map_script_error)?;
@@ -412,7 +405,7 @@ impl<T: ConnectionLike> RbmqFunctions<T> {
             Some(d) => {
                 let ms = u64::try_from(d.as_millis())
                     .map_err(|_| RbmqError::InvalidValue("delay".into(), "0".into(), "u64::MAX".into()))?;
-                number_in_range(ms, 0, JS_COMPAT_MAX_TIME_MILLIS)?;
+                number_in_range(ms, 0, MAX_DURATION_MS)?;
                 ms.to_string()
             }
             None => USE_DEFAULT.to_string(),
@@ -429,7 +422,6 @@ impl<T: ConnectionLike> RbmqFunctions<T> {
             .arg(&id)
             .arg(delay_arg)
             .arg(realtime_flag)
-            .arg(USE_MICROSECONDS)
             .arg(body.0)
             .query_async(conn)
             .await
@@ -454,7 +446,7 @@ impl<T: ConnectionLike> RbmqFunctions<T> {
             Some(d) => {
                 let ms = u64::try_from(d.as_millis())
                     .map_err(|_| RbmqError::InvalidValue("delay".into(), "0".into(), "u64::MAX".into()))?;
-                number_in_range(ms, 0, JS_COMPAT_MAX_TIME_MILLIS)?;
+                number_in_range(ms, 0, MAX_DURATION_MS)?;
                 ms.to_string()
             }
             None => USE_DEFAULT.to_string(),
@@ -476,8 +468,7 @@ impl<T: ConnectionLike> RbmqFunctions<T> {
             .arg(self.zset_key(qname))
             .arg(self.rt_channel(qname))
             .arg(delay_arg)
-            .arg(realtime_flag)
-            .arg(USE_MICROSECONDS);
+            .arg(realtime_flag);
         for (id, body) in ids.iter().zip(bodies.into_iter()) {
             cmd.arg(id).arg(body);
         }
@@ -505,7 +496,7 @@ impl<T: ConnectionLike> RbmqFunctions<T> {
         let hidden_arg = match hidden {
             Some(h) => {
                 let ms = u64::try_from(h.as_millis()).unwrap_or(u64::MAX);
-                number_in_range(ms, 0, JS_COMPAT_MAX_TIME_MILLIS)?;
+                number_in_range(ms, 0, MAX_DURATION_MS)?;
                 ms.to_string()
             }
             None => USE_DEFAULT.to_string(),
@@ -518,7 +509,6 @@ impl<T: ConnectionLike> RbmqFunctions<T> {
             .arg(hidden_arg)
             .arg("false")
             .arg(max_count)
-            .arg(USE_MICROSECONDS)
             .query_async(conn)
             .await
             .map_err(map_script_error)?;
@@ -558,7 +548,7 @@ impl<T: ConnectionLike> RbmqFunctions<T> {
         let hidden_arg = match hidden {
             Some(h) => {
                 let ms = u64::try_from(h.as_millis()).unwrap_or(u64::MAX);
-                number_in_range(ms, 0, JS_COMPAT_MAX_TIME_MILLIS)?;
+                number_in_range(ms, 0, MAX_DURATION_MS)?;
                 ms.to_string()
             }
             None => USE_DEFAULT.to_string(),
@@ -571,7 +561,6 @@ impl<T: ConnectionLike> RbmqFunctions<T> {
             .arg(self.zset_key(dlq))
             .arg(hidden_arg)
             .arg(max_receives.to_string())
-            .arg(USE_MICROSECONDS)
             .query_async(conn)
             .await
             .map_err(map_script_error)?;
@@ -613,7 +602,6 @@ impl<T: ConnectionLike> RbmqFunctions<T> {
             .arg(self.zset_key(src))
             .arg(self.zset_key(dst))
             .arg(msg_id)
-            .arg(USE_MICROSECONDS)
             .query_async(conn)
             .await
             .map_err(map_script_error)?;
@@ -633,7 +621,7 @@ impl<T: ConnectionLike> RbmqFunctions<T> {
         let vt_arg = match hidden {
             Some(h) => {
                 let ms = duration_ms(Some(h), &Duration::from_secs(30));
-                number_in_range(ms, 0, JS_COMPAT_MAX_TIME_MILLIS)?;
+                number_in_range(ms, 0, MAX_DURATION_MS)?;
                 ms.to_string()
             }
             None => String::new(),
@@ -641,7 +629,7 @@ impl<T: ConnectionLike> RbmqFunctions<T> {
         let delay_arg = match delay {
             Some(d) => {
                 let ms = duration_ms(Some(d), &Duration::ZERO);
-                number_in_range(ms, 0, JS_COMPAT_MAX_TIME_MILLIS)?;
+                number_in_range(ms, 0, MAX_DURATION_MS)?;
                 ms.to_string()
             }
             None => String::new(),

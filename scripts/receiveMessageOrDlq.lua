@@ -3,7 +3,6 @@
 -- KEYS[2]: ns:dlq       (destination DLQ sorted set)
 -- ARGV[1]: hidden ms ("-1" => use queue default `vt`)
 -- ARGV[2]: max_receives
--- ARGV[3]: "1" microsecond scores, "0" millisecond
 -- Returns { found, id, body, rc, fr, sent }.
 -- Errors: "QueueNotFound" if the source queue doesn't exist.
 
@@ -26,29 +25,13 @@ local time = redis.call("TIME")
 local sec_str = time[1]
 local usec_str = time[2]
 local time_us_str = sec_str .. string.rep("0", 6 - #usec_str) .. usec_str
-
-local now_score
-local scaled_hidden
-if ARGV[3] == "1" then
-    now_score = tonumber(time[1]) * 1000000 + tonumber(time[2])
-    scaled_hidden = (hidden_ms or 0) * 1000
-else
-    now_score = tonumber(time[1]) * 1000 + math.floor(tonumber(time[2]) / 1000)
-    scaled_hidden = hidden_ms or 0
-end
-
-local fr_now_str
-if ARGV[3] == "1" then
-    fr_now_str = time_us_str
-else
-    local usec_padded = string.rep("0", 6 - #usec_str) .. usec_str
-    fr_now_str = sec_str .. string.sub(usec_padded, 1, 3)
-end
+local now_us = tonumber(time[1]) * 1000000 + tonumber(time[2])
+local new_score = now_us + (hidden_ms or 0) * 1000
 
 local max_iter = 100
 
 for _ = 1, max_iter do
-    local ids = redis.call("ZRANGE", KEYS[1], "-inf", now_score, "BYSCORE", "LIMIT", 0, 1)
+    local ids = redis.call("ZRANGE", KEYS[1], "-inf", now_us, "BYSCORE", "LIMIT", 0, 1)
     if #ids == 0 then
         return { false, "", "", 0, "0", "0" }
     end
@@ -73,13 +56,13 @@ for _ = 1, max_iter do
         if rc > max_receives then
             local fr_for_dlq
             if fr_str == "0" then
-                fr_for_dlq = fr_now_str
+                fr_for_dlq = time_us_str
             else
                 fr_for_dlq = fr_str
             end
 
             local repacked = rc .. "\n" .. fr_for_dlq .. "\n" .. sent_str .. "\n" .. body
-            redis.call("ZADD", KEYS[2], now_score, id)
+            redis.call("ZADD", KEYS[2], now_us, id)
             redis.call("HSET", dlq_msg, id, repacked)
             redis.call("HINCRBY", dlq_cfg, "totalsent", 1)
 
@@ -88,13 +71,13 @@ for _ = 1, max_iter do
         else
             local fr_out_str
             if rc == 1 then
-                fr_str = fr_now_str
-                fr_out_str = fr_now_str
+                fr_str = time_us_str
+                fr_out_str = time_us_str
             else
                 fr_out_str = fr_str
             end
             redis.call("HSET", src_msg, id, rc .. "\n" .. fr_str .. "\n" .. sent_str .. "\n" .. body)
-            redis.call("ZADD", KEYS[1], now_score + scaled_hidden, id)
+            redis.call("ZADD", KEYS[1], new_score, id)
             return { true, id, body, rc, fr_out_str, sent_str }
         end
     end

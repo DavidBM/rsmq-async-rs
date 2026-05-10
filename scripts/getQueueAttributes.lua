@@ -1,19 +1,13 @@
--- Atomically read queue attributes + stats in one round trip (no TIME/ZCOUNT race).
+-- Atomically read queue attributes + stats in one round trip.
 -- KEYS[1]: ns:qname:cfg  (queue config hash)
 -- KEYS[2]: ns:qname      (sorted set key)
--- ARGV[1]: 0 = millisecond scores, 1 = microsecond scores
 
 local time = redis.call("TIME")
-local threshold
-if tonumber(ARGV[1]) == 1 then
-    threshold = tonumber(time[1]) * 1000000 + tonumber(time[2])
-else
-    threshold = tonumber(time[1]) * 1000
-end
+local now_us = tonumber(time[1]) * 1000000 + tonumber(time[2])
 
 local attrs = redis.call("HMGET", KEYS[1], "vt", "delay", "maxsize", "totalrecv", "totalsent", "created", "modified")
 local msgs = redis.call("ZCARD", KEYS[2])
-local hiddenmsgs = redis.call("ZCOUNT", KEYS[2], threshold, "+inf")
+local hiddenmsgs = redis.call("ZCOUNT", KEYS[2], now_us, "+inf")
 
 -- Flat array:
 -- [1..2]  time (seconds, microseconds)
