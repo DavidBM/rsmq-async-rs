@@ -1,24 +1,23 @@
--- Atomically moves a single message from one queue to another, preserving its body
--- and the receive-count / first-received timestamps. The message becomes visible in
--- the destination queue immediately (score = current time).
+-- Atomically move a single message from one queue to another, preserving its body
+-- and the receive-count / first-received metadata. Score in the destination = current time.
 --
--- KEYS[1]: ns:src     (source sorted set key)
--- KEYS[2]: ns:dst     (destination sorted set key)
+-- KEYS[1]: ns:src     (source sorted set)
+-- KEYS[2]: ns:dst     (destination sorted set)
 -- ARGV[1]: message id
--- ARGV[2]: "1" for microsecond scores (break-js-comp), "0" for millisecond scores.
---
--- Returns 1 if the message was found and moved, 0 if it didn't exist in the source.
+-- ARGV[2]: "1" for microsecond scores, "0" for millisecond
+-- Returns 1 if moved, 0 if the message did not exist in the source.
 
-local src_hash = KEYS[1] .. ":Q"
-local dst_hash = KEYS[2] .. ":Q"
+local src_msg = KEYS[1] .. ":msg"
+local dst_msg = KEYS[2] .. ":msg"
+local dst_cfg = KEYS[2] .. ":cfg"
 
-local body = redis.call("HGET", src_hash, ARGV[1])
+local body = redis.call("HGET", src_msg, ARGV[1])
 if not body then
     return 0
 end
 
-local rc = redis.call("HGET", src_hash, ARGV[1] .. ":rc")
-local fr = redis.call("HGET", src_hash, ARGV[1] .. ":fr")
+local rc = redis.call("HGET", src_msg, ARGV[1] .. ":rc")
+local fr = redis.call("HGET", src_msg, ARGV[1] .. ":fr")
 
 local time = redis.call("TIME")
 local score
@@ -29,17 +28,15 @@ else
 end
 
 redis.call("ZADD", KEYS[2], score, ARGV[1])
-redis.call("HSET", dst_hash, ARGV[1], body)
--- Always set :rc and :fr together (or neither) so receiveMessage.lua's HGET on :fr
--- never returns nil for a message with rc > 0. If the source had rc but no :fr (a
--- message moved before its first delivery), default :fr to the current score.
+redis.call("HSET", dst_msg, ARGV[1], body)
+-- Preserve metadata. Default :fr to current score if rc was set without one.
 if rc then
-    redis.call("HSET", dst_hash, ARGV[1] .. ":rc", rc)
-    redis.call("HSET", dst_hash, ARGV[1] .. ":fr", fr or score)
+    redis.call("HSET", dst_msg, ARGV[1] .. ":rc", rc)
+    redis.call("HSET", dst_msg, ARGV[1] .. ":fr", fr or score)
 end
-redis.call("HINCRBY", dst_hash, "totalsent", 1)
+redis.call("HINCRBY", dst_cfg, "totalsent", 1)
 
 redis.call("ZREM", KEYS[1], ARGV[1])
-redis.call("HDEL", src_hash, ARGV[1], ARGV[1] .. ":rc", ARGV[1] .. ":fr")
+redis.call("HDEL", src_msg, ARGV[1], ARGV[1] .. ":rc", ARGV[1] .. ":fr")
 
 return 1

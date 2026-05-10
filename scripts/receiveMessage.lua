@@ -1,63 +1,41 @@
--- This function either retrieves a message from the Redis queue, updates its visibility timeout,
--- increments counters, and returns message details, or removes the message if specified.
--- KEYS[1]: The Redis key for the sorted set representing the message queue.
--- KEYS[2]: The current time or a specific timestamp used for score comparisons.
--- KEYS[3]: The new visibility timestamp used to update the message score.
--- ARGV[1]: A string "true" or "false" indicating whether to delete the message after processing.
+-- Receive (or pop) the next visible message from a queue.
+-- KEYS[1]: ns:qname           (sorted set: id -> score)
+-- KEYS[2]: current timestamp  (upper bound for ZRANGE BYSCORE; also :fr init value)
+-- KEYS[3]: new visibility ts  (new score to push the message to, ignored if deleting)
+-- ARGV[1]: "true" or "false"  (whether to delete after receive)
+-- Returns { found, id, body, rc, fr } or { false, "", "", 0, 0 }.
 
--- Find the next message due to be visible based on the current time (KEYS[2])
-local message = redis.call("ZRANGE", KEYS[1], "-inf", KEYS[2], "BYSCORE", "LIMIT", 0, 1)
+local cfg = KEYS[1] .. ":cfg"
+local msg = KEYS[1] .. ":msg"
 
--- If no message is found, return a default empty response
-if #message == 0 then
+local ids = redis.call("ZRANGE", KEYS[1], "-inf", KEYS[2], "BYSCORE", "LIMIT", 0, 1)
+if #ids == 0 then
     return { false, "", "", 0, 0 }
 end
 
--- Check if the message should be deleted
-local should_delete = ARGV[1] == "true"
-
--- Get the message body from the hash
-local messageBody = redis.call("HGET", KEYS[1] .. ":Q", message[1])
-
--- If the message body is missing (data inconsistency), return empty without side effects
-if not messageBody then
+local id = ids[1]
+local body = redis.call("HGET", msg, id)
+if not body then
+    -- Phantom (sorted-set entry without a body); leave it for the caller to retry.
     return { false, "", "", 0, 0 }
 end
 
--- Increment the total received count for the queue
-redis.call("HINCRBY", KEYS[1] .. ":Q", "totalrecv", 1)
+redis.call("HINCRBY", cfg, "totalrecv", 1)
+local rc = redis.call("HINCRBY", msg, id .. ":rc", 1)
 
--- Increment the receive count for this message
-local receiveCount = redis.call("HINCRBY", KEYS[1] .. ":Q", message[1] .. ":rc", 1)
-
--- Prepare the response table with message details
-local response = { true, message[1], messageBody, receiveCount }
-
--- If the message is received for the first time, set and add the current time to the response
-if receiveCount == 1 then
-    redis.call("HSET", KEYS[1] .. ":Q", message[1] .. ":fr", KEYS[2])
-    table.insert(response, KEYS[2])
+local fr
+if rc == 1 then
+    redis.call("HSET", msg, id .. ":fr", KEYS[2])
+    fr = KEYS[2]
 else
-    -- Otherwise, get the first received time and add it to the response
-    local firstReceived = redis.call("HGET", KEYS[1] .. ":Q", message[1] .. ":fr")
-    table.insert(response, firstReceived)
+    fr = redis.call("HGET", msg, id .. ":fr")
 end
 
--- Update or remove the message based on the should_delete flag
-if should_delete then
-    -- Remove the message from the sorted set
-    redis.call("ZREM", KEYS[1], message[1])
-    -- Delete the message details from the hash
-    redis.call("HDEL", KEYS[1] .. ":Q", message[1], message[1] .. ":rc", message[1] .. ":fr")
+if ARGV[1] == "true" then
+    redis.call("ZREM", KEYS[1], id)
+    redis.call("HDEL", msg, id, id .. ":rc", id .. ":fr")
 else
-    -- Update the message's score to the new visibility timestamp (KEYS[3])
-    redis.call("ZADD", KEYS[1], KEYS[3], message[1])
+    redis.call("ZADD", KEYS[1], KEYS[3], id)
 end
 
--- Return the response containing:
--- [1] boolean indicating if a message was found,
--- [2] message ID,
--- [3] message body,
--- [4] receive count,
--- [5] first received timestamp (either current time or previously set time)
-return response
+return { true, id, body, rc, fr }

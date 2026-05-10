@@ -303,7 +303,7 @@ impl<T: ConnectionLike> RbmqFunctions<T> {
     ) -> RbmqResult<()> {
         valid_name_format(qname)?;
 
-        let key = format!("{}:{}:Q", self.ns, qname);
+        let key = format!("{}:{}:cfg", self.ns, qname);
         let hidden = get_redis_duration(hidden, &Duration::from_secs(30));
         let delay = get_redis_duration(delay, &Duration::ZERO);
         let maxsize = maxsize.unwrap_or(65536);
@@ -374,7 +374,7 @@ impl<T: ConnectionLike> RbmqFunctions<T> {
             .arg(&key)
             .arg(id)
             .cmd("HDEL")
-            .arg(format!("{}:Q", &key))
+            .arg(format!("{}:msg", &key))
             .arg(id)
             .arg(format!("{}:rc", id))
             .arg(format!("{}:fr", id))
@@ -395,8 +395,9 @@ impl<T: ConnectionLike> RbmqFunctions<T> {
         let results: (u16, u16) = pipe()
             .atomic()
             .cmd("DEL")
-            .arg(format!("{}:Q", &key))
-            .arg(key)
+            .arg(format!("{}:cfg", &key))
+            .arg(format!("{}:msg", &key))
+            .arg(&key)
             .cmd("SREM")
             .arg(format!("{}:QUEUES", self.ns))
             .arg(qname)
@@ -433,7 +434,7 @@ impl<T: ConnectionLike> RbmqFunctions<T> {
             u64,
             u64,
         ) = cached_script
-            .invoke_get_queue_attributes(conn, format!("{}:Q", key), key, USE_MICROSECONDS)
+            .invoke_get_queue_attributes(conn, format!("{}:cfg", key), key, USE_MICROSECONDS)
             .await?;
 
         let (
@@ -595,7 +596,8 @@ impl<T: ConnectionLike> RbmqFunctions<T> {
             None => return Err(RbmqError::QueueNotFound),
         };
 
-        let queue_key = format!("{}:Q", key);
+        let cfg_key = format!("{}:cfg", key);
+        let msg_key = format!("{}:msg", key);
 
         let mut piping = pipe();
 
@@ -606,11 +608,11 @@ impl<T: ConnectionLike> RbmqFunctions<T> {
             .arg(queue.ts + delay * DURATION_SCALE)
             .arg(&queue_uid)
             .cmd("HSET")
-            .arg(&queue_key)
+            .arg(&msg_key)
             .arg(&queue_uid)
             .arg(message.0)
             .cmd("HINCRBY")
-            .arg(&queue_key)
+            .arg(&cfg_key)
             .arg("totalsent")
             .arg(1_u64);
 
@@ -861,7 +863,7 @@ impl<T: ConnectionLike> RbmqFunctions<T> {
     ) -> RbmqResult<RbmqQueueAttributes> {
         self.get_queue(conn, qname, false).await?;
 
-        let queue_name = format!("{}:{}:Q", self.ns, qname);
+        let queue_name = format!("{}:{}:cfg", self.ns, qname);
 
         let time: (u64, u64) = redis::cmd("TIME").query_async(conn).await?;
 
@@ -906,7 +908,7 @@ impl<T: ConnectionLike> RbmqFunctions<T> {
         let result: (Vec<Option<String>>, (u64, u64)) = pipe()
             .atomic()
             .cmd("HMGET")
-            .arg(format!("{}:{}:Q", self.ns, qname))
+            .arg(format!("{}:{}:cfg", self.ns, qname))
             .arg("vt")
             .arg("delay")
             .arg("maxsize")
