@@ -30,8 +30,13 @@ end
 
 redis.call("ZADD", KEYS[2], score, ARGV[1])
 redis.call("HSET", dst_hash, ARGV[1], body)
-if rc then redis.call("HSET", dst_hash, ARGV[1] .. ":rc", rc) end
-if fr then redis.call("HSET", dst_hash, ARGV[1] .. ":fr", fr) end
+-- Always set :rc and :fr together (or neither) so receiveMessage.lua's HGET on :fr
+-- never returns nil for a message with rc > 0. If the source had rc but no :fr (a
+-- message moved before its first delivery), default :fr to the current score.
+if rc then
+    redis.call("HSET", dst_hash, ARGV[1] .. ":rc", rc)
+    redis.call("HSET", dst_hash, ARGV[1] .. ":fr", fr or score)
+end
 redis.call("HINCRBY", dst_hash, "totalsent", 1)
 
 redis.call("ZREM", KEYS[1], ARGV[1])

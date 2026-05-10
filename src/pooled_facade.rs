@@ -122,6 +122,21 @@ impl PooledRsmq {
             .await
     }
 
+    /// Receives the next visible message, routing over-budget messages to `dlq`.
+    /// See [`crate::Rsmq::receive_message_or_dlq`].
+    pub async fn receive_message_or_dlq<E: TryFrom<RedisBytes, Error = Vec<u8>>>(
+        &mut self,
+        qname: &str,
+        hidden: Option<Duration>,
+        dlq: &str,
+        max_receives: u64,
+    ) -> RsmqResult<Option<RsmqMessage<E>>> {
+        let mut conn = self.pool.get().await?;
+        self.functions
+            .receive_message_or_dlq::<E>(&mut conn, qname, hidden, dlq, max_receives, &self.scripts)
+            .await
+    }
+
     pub async fn new_with_pool(
         pool: bb8::Pool<RedisConnectionManager>,
         realtime: bool,

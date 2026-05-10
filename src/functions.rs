@@ -46,6 +46,7 @@ pub struct CachedScript {
     send_message_batch_sha1: String,
     receive_message_batch_sha1: String,
     move_message_sha1: String,
+    receive_message_or_dlq_sha1: String,
 }
 
 impl CachedScript {
@@ -80,6 +81,11 @@ impl CachedScript {
             .arg(include_str!("./redis-scripts/moveMessage.lua"))
             .query_async(conn)
             .await?;
+        let receive_message_or_dlq_sha1: String = redis::cmd("SCRIPT")
+            .arg("LOAD")
+            .arg(include_str!("./redis-scripts/receiveMessageOrDlq.lua"))
+            .query_async(conn)
+            .await?;
         Ok(Self {
             change_message_visibility_sha1,
             receive_message_sha1,
@@ -87,6 +93,7 @@ impl CachedScript {
             send_message_batch_sha1,
             receive_message_batch_sha1,
             move_message_sha1,
+            receive_message_or_dlq_sha1,
         })
     }
 
@@ -212,6 +219,34 @@ impl CachedScript {
             .arg(src_key)
             .arg(dst_key)
             .arg(msg_id)
+            .arg(if microseconds { "1" } else { "0" })
+            .query_async(conn)
+            .await
+            .map_err(Into::into)
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    async fn invoke_receive_message_or_dlq<R, T: ConnectionLike>(
+        &self,
+        conn: &mut T,
+        src_key: String,
+        now_ts: String,
+        new_visibility_ts: String,
+        dlq_key: String,
+        max_receives: u64,
+        microseconds: bool,
+    ) -> RsmqResult<R>
+    where
+        R: redis::FromRedisValue,
+    {
+        redis::cmd("EVALSHA")
+            .arg(&self.receive_message_or_dlq_sha1)
+            .arg(4)
+            .arg(src_key)
+            .arg(now_ts)
+            .arg(new_visibility_ts)
+            .arg(dlq_key)
+            .arg(max_receives)
             .arg(if microseconds { "1" } else { "0" })
             .query_async(conn)
             .await
@@ -705,6 +740,70 @@ impl<T: ConnectionLike> RsmqFunctions<T> {
             });
         }
         Ok(out)
+    }
+
+    /// Receives the next visible message, but transparently routes any message whose
+    /// post-increment `rc` exceeds `max_receives` to `dlq` (preserving `:rc` and `:fr`)
+    /// and tries the next one. Returns the first message whose `rc` is still within
+    /// budget, or `None` if no eligible message was found within the script's safety
+    /// iteration limit (currently 100 per call).
+    ///
+    /// `max_receives = 0` means "always route to DLQ" — the function will never deliver.
+    /// `max_receives = N` means "deliver at most N times before routing to DLQ".
+    ///
+    /// `dlq` must be a queue that already exists; this function does not initialize the
+    /// destination queue's configuration.
+    pub async fn receive_message_or_dlq<E: TryFrom<RedisBytes, Error = Vec<u8>>>(
+        &self,
+        conn: &mut T,
+        qname: &str,
+        hidden: Option<Duration>,
+        dlq: &str,
+        max_receives: u64,
+        cached_script: &CachedScript,
+    ) -> RsmqResult<Option<RsmqMessage<E>>> {
+        valid_name_format(qname)?;
+        valid_name_format(dlq)?;
+        if qname == dlq {
+            return Err(RsmqError::InvalidFormat(format!(
+                "qname and dlq must be different (got {qname:?})"
+            )));
+        }
+
+        let queue = self.get_queue(conn, qname, false).await?;
+
+        let hidden = get_redis_duration(hidden, &queue.vt);
+        number_in_range(hidden, 0, JS_COMPAT_MAX_TIME_MILLIS)?;
+
+        let result: (bool, String, Vec<u8>, u64, u64) = cached_script
+            .invoke_receive_message_or_dlq(
+                conn,
+                format!("{}:{}", self.ns, qname),
+                queue.ts.to_string(),
+                (queue.ts + hidden * DURATION_SCALE).to_string(),
+                format!("{}:{}", self.ns, dlq),
+                max_receives,
+                USE_MICROSECONDS == 1,
+            )
+            .await?;
+
+        if !result.0 {
+            return Ok(None);
+        }
+
+        let message = E::try_from(RedisBytes(result.2)).map_err(RsmqError::CannotDecodeMessage)?;
+
+        Ok(Some(RsmqMessage {
+            id: result.1.clone(),
+            message,
+            rc: result.3,
+            fr: result.4,
+            sent: result
+                .1
+                .get(0..10)
+                .and_then(|s| u64::from_str_radix(s, 36).ok())
+                .unwrap_or(0),
+        }))
     }
 
     /// Atomically moves a message from `src` to `dst`, preserving its body and the

@@ -1,5 +1,16 @@
 # Changelog
 
+## 17.4.0 - 2026-05-10
+
+### Added
+- Atomic `receive_message_or_dlq` primitive on [`Rsmq`], [`PooledRsmq`], and [`RsmqSync`]. Identical to `receive_message`, but transparently routes any message whose post-increment `rc` exceeds `max_receives` to a configurable DLQ (preserving `:rc` and `:fr`) and tries the next visible message in the same Lua script invocation. Returns the first eligible message, or `None` if no eligible message was found within the script's per-call iteration cap (currently 100). Rejects `qname == dlq` self-loops.
+  - `max_receives = 0` ⇒ never deliver, always DLQ.
+  - `max_receives = N` ⇒ deliver at most N times before routing to DLQ.
+- 6 new integration tests in `tests/receive_or_dlq.rs`.
+
+### Fixed
+- `moveMessage.lua` (and the new `receiveMessageOrDlq.lua`): when moving a message that has `:rc > 0` but no `:fr` (e.g. a not-yet-delivered message moved by `move_message`, or a message DLQ'd on its very first receive), the destination's `:fr` is now always set — defaulting to the current timestamp — so a subsequent `receive_message` from the destination doesn't fail trying to `HGET` a missing `:fr` field.
+
 ## 17.3.0 - 2026-05-10
 
 ### Added

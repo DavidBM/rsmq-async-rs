@@ -76,6 +76,28 @@ impl Rsmq {
             .move_message(&mut self.connection.0, src, msg_id, dst, &self.scripts)
             .await
     }
+
+    /// Receives the next visible message but transparently routes any message whose
+    /// post-increment `rc` exceeds `max_receives` to `dlq`. See
+    /// [`crate::functions::RsmqFunctions::receive_message_or_dlq`] for the full contract.
+    pub async fn receive_message_or_dlq<E: TryFrom<RedisBytes, Error = Vec<u8>>>(
+        &mut self,
+        qname: &str,
+        hidden: Option<Duration>,
+        dlq: &str,
+        max_receives: u64,
+    ) -> RsmqResult<Option<RsmqMessage<E>>> {
+        self.functions
+            .receive_message_or_dlq::<E>(
+                &mut self.connection.0,
+                qname,
+                hidden,
+                dlq,
+                max_receives,
+                &self.scripts,
+            )
+            .await
+    }
 }
 
 impl RsmqConnection for Rsmq {
