@@ -1,19 +1,6 @@
 use redis::ProtocolVersion;
 use std::{convert::TryFrom, time::Duration};
 
-#[derive(Debug)]
-pub(crate) struct QueueDescriptor {
-    pub vt: Duration,
-    pub delay: Duration,
-    pub maxsize: i64,
-    /// Score-unit timestamp (ms or us depending on `break-js-comp`).
-    pub ts: u64,
-    /// Microsecond timestamp from the same TIME call as `ts`. Used for the `sent`
-    /// slot in the packed message value, which is always in microseconds.
-    pub time_us: u64,
-    pub uid: Option<String>,
-}
-
 /// Options for creating a new rbmq instance.
 #[derive(Debug, Clone)]
 pub struct RbmqOptions {

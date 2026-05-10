@@ -1,17 +1,50 @@
--- Atomically receive up to N visible messages, sharing the same new visibility timestamp.
+-- Atomically receive up to N visible messages.
 -- KEYS[1]: ns:qname           (sorted set key)
--- KEYS[2]: current timestamp  (upper bound for ZRANGE BYSCORE; :fr init)
--- KEYS[3]: new visibility ts  (new score for each non-deleted message)
--- ARGV[1]: "true" or "false"  (delete after receive — pop semantics)
--- ARGV[2]: max_count          (positive integer as string)
+-- ARGV[1]: hidden ms ("-1" => use queue default `vt`)
+-- ARGV[2]: "true" or "false"  (delete after receive)
+-- ARGV[3]: max_count (positive integer as string)
+-- ARGV[4]: "1" microsecond scores, "0" millisecond
 -- Returns an array of { id, body, rc, fr, sent } tuples.
+-- Errors: "QueueNotFound" if the queue doesn't exist.
 
 local cfg = KEYS[1] .. ":cfg"
 local msg = KEYS[1] .. ":msg"
-local should_delete = ARGV[1] == "true"
-local max_count = tonumber(ARGV[2])
 
-local ids = redis.call("ZRANGE", KEYS[1], "-inf", KEYS[2], "BYSCORE", "LIMIT", 0, max_count)
+if redis.call("EXISTS", cfg) == 0 then
+    return redis.error_reply("QueueNotFound")
+end
+
+local should_delete = ARGV[2] == "true"
+local max_count = tonumber(ARGV[3])
+local hidden_ms = tonumber(ARGV[1])
+if hidden_ms < 0 and not should_delete then
+    hidden_ms = tonumber(redis.call("HGET", cfg, "vt"))
+end
+
+local time = redis.call("TIME")
+local sec_str = time[1]
+local usec_str = time[2]
+local time_us_str = sec_str .. string.rep("0", 6 - #usec_str) .. usec_str
+
+local now_score
+local scaled_hidden
+if ARGV[4] == "1" then
+    now_score = tonumber(time[1]) * 1000000 + tonumber(time[2])
+    scaled_hidden = (hidden_ms or 0) * 1000
+else
+    now_score = tonumber(time[1]) * 1000 + math.floor(tonumber(time[2]) / 1000)
+    scaled_hidden = hidden_ms or 0
+end
+
+local fr_now_str
+if ARGV[4] == "1" then
+    fr_now_str = time_us_str
+else
+    local usec_padded = string.rep("0", 6 - #usec_str) .. usec_str
+    fr_now_str = sec_str .. string.sub(usec_padded, 1, 3)
+end
+
+local ids = redis.call("ZRANGE", KEYS[1], "-inf", now_score, "BYSCORE", "LIMIT", 0, max_count)
 local results = {}
 
 for i = 1, #ids do
@@ -29,12 +62,12 @@ for i = 1, #ids do
         redis.call("HINCRBY", cfg, "totalrecv", 1)
         rc = rc + 1
 
-        local fr_out
+        local fr_out_str
         if rc == 1 then
-            fr_str = KEYS[2]
-            fr_out = KEYS[2]
+            fr_str = fr_now_str
+            fr_out_str = fr_now_str
         else
-            fr_out = fr_str
+            fr_out_str = fr_str
         end
 
         if should_delete then
@@ -42,10 +75,10 @@ for i = 1, #ids do
             redis.call("HDEL", msg, id)
         else
             redis.call("HSET", msg, id, rc .. "\n" .. fr_str .. "\n" .. sent_str .. "\n" .. body)
-            redis.call("ZADD", KEYS[1], KEYS[3], id)
+            redis.call("ZADD", KEYS[1], now_score + scaled_hidden, id)
         end
 
-        table.insert(results, { id, body, rc, tonumber(fr_out), tonumber(sent_str) })
+        table.insert(results, { id, body, rc, fr_out_str, sent_str })
     end
 end
 

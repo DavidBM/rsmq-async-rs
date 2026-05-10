@@ -93,18 +93,25 @@ impl RbmqConnection for Rbmq {
         maxsize: Option<i64>,
     ) -> RbmqResult<()> {
         self.functions
-            .create_queue(&mut self.connection.0, qname, hidden, delay, maxsize)
+            .create_queue(
+                &mut self.connection.0,
+                qname,
+                hidden,
+                delay,
+                maxsize,
+                &self.scripts,
+            )
             .await
     }
 
     async fn delete_message(&mut self, qname: &str, id: &str) -> RbmqResult<bool> {
         self.functions
-            .delete_message(&mut self.connection.0, qname, id)
+            .delete_message(&mut self.connection.0, qname, id, &self.scripts)
             .await
     }
     async fn delete_queue(&mut self, qname: &str) -> RbmqResult<()> {
         self.functions
-            .delete_queue(&mut self.connection.0, qname)
+            .delete_queue(&mut self.connection.0, qname, &self.scripts)
             .await
     }
     async fn get_queue_attributes(&mut self, qname: &str) -> RbmqResult<RbmqQueueAttributes> {
@@ -143,7 +150,7 @@ impl RbmqConnection for Rbmq {
         delay: Option<Duration>,
     ) -> RbmqResult<String> {
         self.functions
-            .send_message(&mut self.connection.0, qname, message, delay)
+            .send_message(&mut self.connection.0, qname, message, delay, &self.scripts)
             .await
     }
 

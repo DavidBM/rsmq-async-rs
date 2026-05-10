@@ -1,19 +1,36 @@
--- changeMessageVisibility.lua
--- This script changes the visibility timestamp of a message in a Redis sorted set.
--- KEYS[1]: The Redis key for the sorted set representing the message queue.
--- KEYS[2]: The message ID whose visibility is to be updated.
--- KEYS[3]: The new visibility timestamp to be set for the message.
+-- Update the visibility timestamp (score) of an in-flight message.
+-- KEYS[1]: ns:qname     (sorted set key)
+-- ARGV[1]: message id
+-- ARGV[2]: hidden duration in ms ("-1" to use the queue's default `vt`)
+-- ARGV[3]: "1" for microsecond scores, "0" for millisecond
+-- Returns 1 if the message existed and was updated, 0 otherwise.
+-- Errors: "QueueNotFound" if the queue doesn't exist.
 
--- Retrieve the current score (visibility timestamp) of the message
-local currentScore = redis.call("ZSCORE", KEYS[1], KEYS[2])
+local cfg = KEYS[1] .. ":cfg"
 
--- If the message does not exist in the sorted set, return false
-if not currentScore then
-    return false
+if redis.call("EXISTS", cfg) == 0 then
+    return redis.error_reply("QueueNotFound")
 end
 
--- Update the message's visibility timestamp (score) to the new value provided
-redis.call("ZADD", KEYS[1], KEYS[3], KEYS[2])
+if redis.call("ZSCORE", KEYS[1], ARGV[1]) == false then
+    return 0
+end
 
--- Return true indicating that the visibility has been successfully updated
-return true
+local hidden_ms = tonumber(ARGV[2])
+if hidden_ms < 0 then
+    hidden_ms = tonumber(redis.call("HGET", cfg, "vt"))
+end
+
+local time = redis.call("TIME")
+local now_score
+local scaled_hidden
+if ARGV[3] == "1" then
+    now_score = tonumber(time[1]) * 1000000 + tonumber(time[2])
+    scaled_hidden = hidden_ms * 1000
+else
+    now_score = tonumber(time[1]) * 1000 + math.floor(tonumber(time[2]) / 1000)
+    scaled_hidden = hidden_ms
+end
+
+redis.call("ZADD", KEYS[1], now_score + scaled_hidden, ARGV[1])
+return 1

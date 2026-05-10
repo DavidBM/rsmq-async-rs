@@ -1,27 +1,56 @@
--- Atomic receive with consumer-side DLQ routing. For each visible message, bumps rc;
--- if rc > max_receives the message is atomically moved to the DLQ and the script tries
--- the next visible message. Returns the first deliverable message, or empty if none
--- qualified within the per-call iteration cap.
---
+-- Atomic receive with consumer-side DLQ routing.
 -- KEYS[1]: ns:src       (source sorted set)
--- KEYS[2]: now ts       (upper bound for ZRANGE BYSCORE; :fr init)
--- KEYS[3]: new vt ts    (new visibility for the delivered message)
--- KEYS[4]: ns:dlq       (destination DLQ sorted set)
--- ARGV[1]: max_receives
--- ARGV[2]: "1" for microsecond scores, "0" for millisecond
--- Returns { found, id, body, rc, fr, sent } or { false, "", "", 0, 0, 0 }.
+-- KEYS[2]: ns:dlq       (destination DLQ sorted set)
+-- ARGV[1]: hidden ms ("-1" => use queue default `vt`)
+-- ARGV[2]: max_receives
+-- ARGV[3]: "1" microsecond scores, "0" millisecond
+-- Returns { found, id, body, rc, fr, sent }.
+-- Errors: "QueueNotFound" if the source queue doesn't exist.
 
-local max_receives = tonumber(ARGV[1])
 local src_cfg = KEYS[1] .. ":cfg"
 local src_msg = KEYS[1] .. ":msg"
-local dlq_cfg = KEYS[4] .. ":cfg"
-local dlq_msg = KEYS[4] .. ":msg"
+local dlq_cfg = KEYS[2] .. ":cfg"
+local dlq_msg = KEYS[2] .. ":msg"
+
+if redis.call("EXISTS", src_cfg) == 0 then
+    return redis.error_reply("QueueNotFound")
+end
+
+local hidden_ms = tonumber(ARGV[1])
+if hidden_ms < 0 then
+    hidden_ms = tonumber(redis.call("HGET", src_cfg, "vt"))
+end
+local max_receives = tonumber(ARGV[2])
+
+local time = redis.call("TIME")
+local sec_str = time[1]
+local usec_str = time[2]
+local time_us_str = sec_str .. string.rep("0", 6 - #usec_str) .. usec_str
+
+local now_score
+local scaled_hidden
+if ARGV[3] == "1" then
+    now_score = tonumber(time[1]) * 1000000 + tonumber(time[2])
+    scaled_hidden = (hidden_ms or 0) * 1000
+else
+    now_score = tonumber(time[1]) * 1000 + math.floor(tonumber(time[2]) / 1000)
+    scaled_hidden = hidden_ms or 0
+end
+
+local fr_now_str
+if ARGV[3] == "1" then
+    fr_now_str = time_us_str
+else
+    local usec_padded = string.rep("0", 6 - #usec_str) .. usec_str
+    fr_now_str = sec_str .. string.sub(usec_padded, 1, 3)
+end
+
 local max_iter = 100
 
 for _ = 1, max_iter do
-    local ids = redis.call("ZRANGE", KEYS[1], "-inf", KEYS[2], "BYSCORE", "LIMIT", 0, 1)
+    local ids = redis.call("ZRANGE", KEYS[1], "-inf", now_score, "BYSCORE", "LIMIT", 0, 1)
     if #ids == 0 then
-        return { false, "", "", 0, 0, 0 }
+        return { false, "", "", 0, "0", "0" }
     end
 
     local id = ids[1]
@@ -42,41 +71,33 @@ for _ = 1, max_iter do
         rc = rc + 1
 
         if rc > max_receives then
-            -- Patch fr to KEYS[2] if it was never set on a normal delivery.
             local fr_for_dlq
-            if tonumber(fr_str) == 0 then
-                fr_for_dlq = KEYS[2]
+            if fr_str == "0" then
+                fr_for_dlq = fr_now_str
             else
                 fr_for_dlq = fr_str
             end
-            local time = redis.call("TIME")
-            local dlq_score
-            if ARGV[2] == "1" then
-                dlq_score = tonumber(time[1]) * 1000000 + tonumber(time[2])
-            else
-                dlq_score = tonumber(time[1]) * 1000 + math.floor(tonumber(time[2]) / 1000)
-            end
 
             local repacked = rc .. "\n" .. fr_for_dlq .. "\n" .. sent_str .. "\n" .. body
-            redis.call("ZADD", KEYS[4], dlq_score, id)
+            redis.call("ZADD", KEYS[2], now_score, id)
             redis.call("HSET", dlq_msg, id, repacked)
             redis.call("HINCRBY", dlq_cfg, "totalsent", 1)
 
             redis.call("ZREM", KEYS[1], id)
             redis.call("HDEL", src_msg, id)
         else
-            local fr_out
+            local fr_out_str
             if rc == 1 then
-                fr_str = KEYS[2]
-                fr_out = KEYS[2]
+                fr_str = fr_now_str
+                fr_out_str = fr_now_str
             else
-                fr_out = fr_str
+                fr_out_str = fr_str
             end
             redis.call("HSET", src_msg, id, rc .. "\n" .. fr_str .. "\n" .. sent_str .. "\n" .. body)
-            redis.call("ZADD", KEYS[1], KEYS[3], id)
-            return { true, id, body, rc, tonumber(fr_out), tonumber(sent_str) }
+            redis.call("ZADD", KEYS[1], now_score + scaled_hidden, id)
+            return { true, id, body, rc, fr_out_str, sent_str }
         end
     end
 end
 
-return { false, "", "", 0, 0, 0 }
+return { false, "", "", 0, "0", "0" }

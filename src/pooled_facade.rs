@@ -163,19 +163,23 @@ impl RbmqConnection for PooledRbmq {
         let mut conn = self.pool.get().await?;
 
         self.functions
-            .create_queue(&mut conn, qname, hidden, delay, maxsize)
+            .create_queue(&mut conn, qname, hidden, delay, maxsize, &self.scripts)
             .await
     }
 
     async fn delete_message(&mut self, qname: &str, id: &str) -> RbmqResult<bool> {
         let mut conn = self.pool.get().await?;
 
-        self.functions.delete_message(&mut conn, qname, id).await
+        self.functions
+            .delete_message(&mut conn, qname, id, &self.scripts)
+            .await
     }
     async fn delete_queue(&mut self, qname: &str) -> RbmqResult<()> {
         let mut conn = self.pool.get().await?;
 
-        self.functions.delete_queue(&mut conn, qname).await
+        self.functions
+            .delete_queue(&mut conn, qname, &self.scripts)
+            .await
     }
     async fn get_queue_attributes(&mut self, qname: &str) -> RbmqResult<RbmqQueueAttributes> {
         let mut conn = self.pool.get().await?;
@@ -223,7 +227,7 @@ impl RbmqConnection for PooledRbmq {
         let mut conn = self.pool.get().await?;
 
         self.functions
-            .send_message(&mut conn, qname, message, delay)
+            .send_message(&mut conn, qname, message, delay, &self.scripts)
             .await
     }
 

@@ -98,7 +98,14 @@ impl RbmqConnectionSync for RbmqSync {
     ) -> RbmqResult<()> {
         self.runner.block_on(async {
             self.functions
-                .create_queue(&mut self.connection.0, qname, hidden, delay, maxsize)
+                .create_queue(
+                    &mut self.connection.0,
+                    qname,
+                    hidden,
+                    delay,
+                    maxsize,
+                    &self.scripts,
+                )
                 .await
         })
     }
@@ -106,14 +113,14 @@ impl RbmqConnectionSync for RbmqSync {
     fn delete_message(&mut self, qname: &str, id: &str) -> RbmqResult<bool> {
         self.runner.block_on(async {
             self.functions
-                .delete_message(&mut self.connection.0, qname, id)
+                .delete_message(&mut self.connection.0, qname, id, &self.scripts)
                 .await
         })
     }
     fn delete_queue(&mut self, qname: &str) -> RbmqResult<()> {
         self.runner.block_on(async {
             self.functions
-                .delete_queue(&mut self.connection.0, qname)
+                .delete_queue(&mut self.connection.0, qname, &self.scripts)
                 .await
         })
     }
@@ -161,7 +168,7 @@ impl RbmqConnectionSync for RbmqSync {
     ) -> RbmqResult<String> {
         self.runner.block_on(async {
             self.functions
-                .send_message(&mut self.connection.0, qname, message, delay)
+                .send_message(&mut self.connection.0, qname, message, delay, &self.scripts)
                 .await
         })
     }
