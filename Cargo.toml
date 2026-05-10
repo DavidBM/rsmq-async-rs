@@ -55,3 +55,7 @@ required-features = ["serde"]
 [[example]]
 name = "worker_helper"
 required-features = ["worker"]
+
+[[example]]
+name = "interop_helper"
+required-features = ["serde", "tokio-comp"]

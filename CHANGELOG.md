@@ -1,6 +1,35 @@
 # Changelog
 
-## 18.0.0 - 2026-05-10
+## rbmq 1.0.0-alpha.1 - 2026-05-10
+
+The crate has been renamed from `rsmq_async` to `rbmq` and re-architected. **Not wire-compatible** with `rsmq_async` v17/v18 or with the original `smrchy/rsmq` Node package. Users needing the JS-rsmq wire format should stay on `rsmq_async` v17 or v18.
+
+### What changed
+
+- **Crate renamed**: `rsmq_async` → `rbmq`. All public types renamed `Rsmq*` → `Rbmq*`. Default namespace `"rsmq"` → `"rbmq"`.
+- **Storage layout split**: the JS-rsmq `{ns}:{q}:Q` mixed hash is gone. Replaced by `{ns}:{q}:cfg` (queue config + counters) and `{ns}:{q}:msg` (per-message data).
+- **Packed message format**: each message is one hash entry, encoded as `"<rc>\n<fr>\n<sent>\n<body>"`. One `HGET` per receive instead of three.
+- **Single round trip per call**: every public method is now one `EVALSHA`. The Lua script reads queue config, calls `redis.call("TIME")`, and (when realtime) `PUBLISH`es — all atomically. No pre-fetch round trip.
+- **Microsecond scores always**: the `break-js-comp` Cargo feature and `JS_COMPAT_MAX_TIME_MILLIS` cap are gone.
+- **32-char hex IDs**: 16 random bytes formatted as lowercase hex. No more `radix_36` time prefix; ordering comes from the sorted-set score, not the id. `radix_36` and `lazy_static` deps removed.
+- **`redis::Script` helper**: replaces hand-rolled `SCRIPT LOAD` + `EVALSHA` + cache. `CachedScript` struct and `load_scripts` method removed.
+- **All semantics live in Lua**: the new `scripts/` directory is shared with the new `rbmq` Node.js package.
+- **Test suite**: 65 → 206 integration tests. New files cover edge cases, concurrency, encoding, lifecycle, visibility, DLQ extras, properties, worker extras, and failure modes.
+- **Node.js client**: a new `rbmq` npm package (in `node/`) backed by ioredis and the same Lua scripts. 95 tests, 20 of which are cross-language (Rust ↔ Node).
+- **CI** runs Rust, Node, and a dedicated cross-language interop job.
+
+### Removed
+
+- `break-js-comp` Cargo feature
+- `radix_36` and `lazy_static` dependencies
+- `CachedScript` struct, `load_scripts` method
+- `RbmqError::CannotParseVT`, `CannotParseDelay`, `CannotParseMaxsize` (Lua reads typed values now)
+
+### Migration
+
+`rbmq` v1 is incompatible with `rsmq_async` v17/v18 at the storage layer. If you need to migrate live data, you'll need a one-shot migration script (not provided as part of this release — open an issue if you want one).
+
+## rsmq_async 18.0.0 - 2026-05-10
 
 ### Breaking
 - `move_message` and `receive_message_or_dlq` are now required methods on the [`RsmqConnection`] and [`RsmqConnectionSync`] traits (no default impls — neither has a clean atomic non-Lua implementation). The inherent methods on `Rsmq`, `PooledRsmq`, and `RsmqSync` introduced in 17.3.0 / 17.4.0 are removed. Callers using the inherent methods need to add `use rsmq_async::RsmqConnection;` (most users already have this for any other trait method). Downstream `RsmqConnection` impls (test mocks, etc.) need to implement these two methods.

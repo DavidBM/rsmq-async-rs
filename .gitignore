@@ -16,3 +16,10 @@ Cargo.lock
 
 /target
 #**/*.rs.bk
+
+# Node.js
+node/node_modules/
+node/coverage/
+node/dist/
+node/.vitest-cache/
+.DS_Store
