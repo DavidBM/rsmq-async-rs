@@ -4,7 +4,7 @@ use crate::{
     RbmqError, RbmqResult,
 };
 use core::convert::TryFrom;
-use rand::seq::IteratorRandom;
+use rand::RngExt;
 use redis::aio::ConnectionLike;
 use std::convert::TryInto;
 use std::time::Duration;
@@ -418,7 +418,7 @@ impl<T: ConnectionLike> RbmqFunctions<T> {
             None => USE_DEFAULT.to_string(),
         };
 
-        let id = Self::make_id(22)?;
+        let id = Self::make_id()?;
         let realtime_flag = if self.realtime { "1" } else { "0" };
 
         let _returned: String = redis::cmd("EVALSHA")
@@ -466,7 +466,7 @@ impl<T: ConnectionLike> RbmqFunctions<T> {
         let mut bodies: Vec<Vec<u8>> = Vec::with_capacity(messages.len());
         for m in messages {
             let body: RedisBytes = m.into();
-            ids.push(Self::make_id(22)?);
+            ids.push(Self::make_id()?);
             bodies.push(body.0);
         }
 
@@ -675,15 +675,16 @@ impl<T: ConnectionLike> RbmqFunctions<T> {
         self.get_queue_attributes(conn, qname, cached_script).await
     }
 
-    fn make_id(len: usize) -> RbmqResult<String> {
-        const POSSIBLE: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
-        let mut rng = rand::rng();
-        let mut id = String::with_capacity(len);
-        for _ in 0..len {
-            let idx = (0..POSSIBLE.len())
-                .choose(&mut rng)
-                .ok_or(RbmqError::BugCreatingRandomValue)?;
-            id.push(POSSIBLE[idx] as char);
+    /// Mints a 32-char lowercase-hex ID (16 random bytes). Globally unique with overwhelming
+    /// probability; ordering is *not* time-based — the queue's sorted set provides ordering
+    /// via score.
+    fn make_id() -> RbmqResult<String> {
+        let mut bytes = [0u8; 16];
+        rand::rng().fill(&mut bytes);
+        let mut id = String::with_capacity(32);
+        for b in &bytes {
+            use std::fmt::Write as _;
+            write!(&mut id, "{:02x}", b).map_err(|_| RbmqError::BugCreatingRandomValue)?;
         }
         Ok(id)
     }
