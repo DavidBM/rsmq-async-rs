@@ -1,20 +1,23 @@
 -- Atomically insert a batch of messages into the queue.
 -- KEYS[1]: ns:qname               (sorted set key)
--- ARGV[1]: realtime flag ("1" or "0") — when "1", returns the new ZCARD so the
---          caller can do a single PUBLISH outside the script.
--- ARGV[2..]: triplets (id, score, body), one per message. Length = 1 + 3*N.
+-- ARGV[1]: realtime flag ("1" or "0")
+-- ARGV[2]: sent timestamp (decimal string, used as the `sent` slot for every msg)
+-- ARGV[3..]: triplets (id, score, body), one per message. Length = 2 + 3*N.
 -- Returns: new ZCARD if realtime, else 0.
+--
+-- Per-message hash value layout: "<rc>\n<fr>\n<sent>\n<body>". rc and fr start at 0.
 
 local cfg = KEYS[1] .. ":cfg"
 local msg = KEYS[1] .. ":msg"
-local n = (#ARGV - 1) / 3
+local sent = ARGV[2]
+local n = (#ARGV - 2) / 3
 
 for i = 0, n - 1 do
-    local id    = ARGV[2 + i * 3]
-    local score = ARGV[3 + i * 3]
-    local body  = ARGV[4 + i * 3]
+    local id    = ARGV[3 + i * 3]
+    local score = ARGV[4 + i * 3]
+    local body  = ARGV[5 + i * 3]
     redis.call("ZADD", KEYS[1], score, id)
-    redis.call("HSET", msg, id, body)
+    redis.call("HSET", msg, id, "0\n0\n" .. sent .. "\n" .. body)
 end
 
 redis.call("HINCRBY", cfg, "totalsent", n)

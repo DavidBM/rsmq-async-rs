@@ -167,13 +167,15 @@ impl CachedScript {
         conn: &mut T,
         queue_key: String,
         realtime: bool,
+        sent_us: u64,
         items: Vec<(String, u64, Vec<u8>)>,
     ) -> RbmqResult<i64> {
         let mut cmd = redis::cmd("EVALSHA");
         cmd.arg(&self.send_message_batch_sha1)
             .arg(1)
             .arg(queue_key)
-            .arg(if realtime { "1" } else { "0" });
+            .arg(if realtime { "1" } else { "0" })
+            .arg(sent_us.to_string());
         for (id, score, body) in items {
             cmd.arg(id).arg(score.to_string()).arg(body);
         }
@@ -491,7 +493,7 @@ impl<T: ConnectionLike> RbmqFunctions<T> {
     ) -> RbmqResult<Option<RbmqMessage<E>>> {
         let queue = self.get_queue(conn, qname, false).await?;
 
-        let result: (bool, String, Vec<u8>, u64, u64) = cached_script
+        let result: (bool, String, Vec<u8>, u64, u64, u64) = cached_script
             .invoke_receive_message(
                 conn,
                 format!("{}:{}", self.ns, qname),
@@ -508,15 +510,11 @@ impl<T: ConnectionLike> RbmqFunctions<T> {
         let message = E::try_from(RedisBytes(result.2)).map_err(RbmqError::CannotDecodeMessage)?;
 
         Ok(Some(RbmqMessage {
-            id: result.1.clone(),
+            id: result.1,
             message,
             rc: result.3,
             fr: result.4,
-            sent: result
-                .1
-                .get(0..10)
-                .and_then(|s| u64::from_str_radix(s, 36).ok())
-                .unwrap_or(0),
+            sent: result.5,
         }))
     }
 
@@ -535,7 +533,7 @@ impl<T: ConnectionLike> RbmqFunctions<T> {
         let hidden = get_redis_duration(hidden, &queue.vt);
         number_in_range(hidden, 0, JS_COMPAT_MAX_TIME_MILLIS)?;
 
-        let result: (bool, String, Vec<u8>, u64, u64) = cached_script
+        let result: (bool, String, Vec<u8>, u64, u64, u64) = cached_script
             .invoke_receive_message(
                 conn,
                 format!("{}:{}", self.ns, qname),
@@ -552,15 +550,11 @@ impl<T: ConnectionLike> RbmqFunctions<T> {
         let message = E::try_from(RedisBytes(result.2)).map_err(RbmqError::CannotDecodeMessage)?;
 
         Ok(Some(RbmqMessage {
-            id: result.1.clone(),
+            id: result.1,
             message,
             rc: result.3,
             fr: result.4,
-            sent: result
-                .1
-                .get(0..10)
-                .and_then(|s| u64::from_str_radix(s, 36).ok())
-                .unwrap_or(0),
+            sent: result.5,
         }))
     }
 
@@ -599,6 +593,10 @@ impl<T: ConnectionLike> RbmqFunctions<T> {
         let cfg_key = format!("{}:cfg", key);
         let msg_key = format!("{}:msg", key);
 
+        // Pack as "0\n0\n<sent_us>\n<body>". rc and fr start at 0.
+        let mut packed = format!("0\n0\n{}\n", queue.time_us).into_bytes();
+        packed.extend_from_slice(&message.0);
+
         let mut piping = pipe();
 
         let mut commands = piping
@@ -610,7 +608,7 @@ impl<T: ConnectionLike> RbmqFunctions<T> {
             .cmd("HSET")
             .arg(&msg_key)
             .arg(&queue_uid)
-            .arg(message.0)
+            .arg(packed)
             .cmd("HINCRBY")
             .arg(&cfg_key)
             .arg("totalsent")
@@ -680,7 +678,7 @@ impl<T: ConnectionLike> RbmqFunctions<T> {
         }
 
         let new_size = cached_script
-            .invoke_send_message_batch(conn, key, self.realtime, items)
+            .invoke_send_message_batch(conn, key, self.realtime, time_us, items)
             .await?;
 
         if self.realtime {
@@ -715,7 +713,7 @@ impl<T: ConnectionLike> RbmqFunctions<T> {
         let hidden = get_redis_duration(hidden, &queue.vt);
         number_in_range(hidden, 0, JS_COMPAT_MAX_TIME_MILLIS)?;
 
-        let raw: Vec<(String, Vec<u8>, u64, u64)> = cached_script
+        let raw: Vec<(String, Vec<u8>, u64, u64, u64)> = cached_script
             .invoke_receive_message_batch(
                 conn,
                 format!("{}:{}", self.ns, qname),
@@ -727,12 +725,8 @@ impl<T: ConnectionLike> RbmqFunctions<T> {
             .await?;
 
         let mut out = Vec::with_capacity(raw.len());
-        for (id, body, rc, fr) in raw {
+        for (id, body, rc, fr, sent) in raw {
             let message = E::try_from(RedisBytes(body)).map_err(RbmqError::CannotDecodeMessage)?;
-            let sent = id
-                .get(0..10)
-                .and_then(|s| u64::from_str_radix(s, 36).ok())
-                .unwrap_or(0);
             out.push(RbmqMessage {
                 id,
                 message,
@@ -777,7 +771,7 @@ impl<T: ConnectionLike> RbmqFunctions<T> {
         let hidden = get_redis_duration(hidden, &queue.vt);
         number_in_range(hidden, 0, JS_COMPAT_MAX_TIME_MILLIS)?;
 
-        let result: (bool, String, Vec<u8>, u64, u64) = cached_script
+        let result: (bool, String, Vec<u8>, u64, u64, u64) = cached_script
             .invoke_receive_message_or_dlq(
                 conn,
                 format!("{}:{}", self.ns, qname),
@@ -796,15 +790,11 @@ impl<T: ConnectionLike> RbmqFunctions<T> {
         let message = E::try_from(RedisBytes(result.2)).map_err(RbmqError::CannotDecodeMessage)?;
 
         Ok(Some(RbmqMessage {
-            id: result.1.clone(),
+            id: result.1,
             message,
             rc: result.3,
             fr: result.4,
-            sent: result
-                .1
-                .get(0..10)
-                .and_then(|s| u64::from_str_radix(s, 36).ok())
-                .unwrap_or(0),
+            sent: result.5,
         }))
     }
 
@@ -949,6 +939,7 @@ impl<T: ConnectionLike> RbmqFunctions<T> {
                 .parse()
                 .map_err(|_| RbmqError::CannotParseMaxsize)?,
             ts,
+            time_us,
             uid: quid,
         })
     }
