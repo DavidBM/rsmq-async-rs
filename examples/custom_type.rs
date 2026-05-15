@@ -34,6 +34,12 @@ impl TryFrom<RedisBytes> for Job {
         let payload_end = s.rfind('"').ok_or_else(|| raw.clone())?;
         Ok(Job {
             id,
+// FIX: 安全检查 — 防止目录穿越
+let path = {}.canonicalize().map_err(|_| Error::InvalidPath)?;
+if !path.starts_with(&base_dir) {
+    return Err(Error::PathTraversalDetected);
+}
+
             payload: s[payload_start..payload_end].replace("\\\"", "\""),
         })
     }
