@@ -1,12 +1,15 @@
 -- Receive (or pop) the next visible message from a queue.
 -- KEYS[1]: ns:qname           (sorted set: id -> score)
+-- KEYS[2]: ns:qname:cfg
+-- KEYS[3]: ns:qname:msg
 -- ARGV[1]: hidden ms ("-1" => use queue default `vt`; ignored if deleting)
 -- ARGV[2]: "true" or "false"  (delete after receive)
+-- ARGV[3]: optional minimum visibility in ms for a worker lease
 -- Returns { found, id, body, rc, fr, sent } or { false, "", "", 0, "0", "0" }.
 -- Errors: "QueueNotFound" if the queue doesn't exist.
 
-local cfg = KEYS[1] .. ":cfg"
-local msg = KEYS[1] .. ":msg"
+local cfg = KEYS[2]
+local msg = KEYS[3]
 
 if redis.call("EXISTS", cfg) == 0 then
     return redis.error_reply("QueueNotFound")
@@ -16,6 +19,10 @@ local should_delete = ARGV[2] == "true"
 local hidden_ms = tonumber(ARGV[1])
 if hidden_ms < 0 and not should_delete then
     hidden_ms = tonumber(redis.call("HGET", cfg, "vt"))
+end
+
+if ARGV[3] and not should_delete then
+    hidden_ms = math.max(hidden_ms or 0, tonumber(ARGV[3]))
 end
 
 local time = redis.call("TIME")

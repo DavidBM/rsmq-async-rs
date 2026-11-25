@@ -32,20 +32,7 @@ impl RbmqSync {
             .build()
             .map_err(|e| RbmqError::TokioStart(e.into()))?;
 
-        let mut redis_info = redis::RedisConnectionInfo::default()
-            .set_db(options.db.into())
-            .set_protocol(options.protocol);
-        if let Some(username) = options.username {
-            redis_info = redis_info.set_username(username);
-        }
-        if let Some(password) = options.password {
-            redis_info = redis_info.set_password(password);
-        }
-        let conn_info = format!("redis://{}:{}", options.host, options.port)
-            .parse::<redis::ConnectionInfo>()?
-            .set_redis_settings(redis_info);
-
-        let client = redis::Client::open(conn_info)?;
+        let client = options.redis_client()?;
 
         let functions = RbmqFunctions {
             ns: options.ns,
@@ -53,8 +40,8 @@ impl RbmqSync {
             conn: PhantomData,
         };
 
-        let connection = runner
-            .block_on(async { client.get_multiplexed_async_connection().await })?;
+        let connection =
+            runner.block_on(async { client.get_multiplexed_async_connection().await })?;
 
         Ok(RbmqSync {
             connection: RedisConnection(connection),
@@ -95,14 +82,16 @@ impl RbmqConnectionSync for RbmqSync {
     fn delete_message(&mut self, qname: &str, id: &str) -> RbmqResult<bool> {
         self.runner.block_on(async {
             self.functions
-                .delete_message(&mut self.connection.0, qname, id)
+                .delete_message(&mut self.connection.0, qname, id, None)
                 .await
         })
     }
 
     fn delete_queue(&mut self, qname: &str) -> RbmqResult<()> {
         self.runner.block_on(async {
-            self.functions.delete_queue(&mut self.connection.0, qname).await
+            self.functions
+                .delete_queue(&mut self.connection.0, qname)
+                .await
         })
     }
 
@@ -124,7 +113,9 @@ impl RbmqConnectionSync for RbmqSync {
         qname: &str,
     ) -> RbmqResult<Option<RbmqMessage<E>>> {
         self.runner.block_on(async {
-            self.functions.pop_message::<E>(&mut self.connection.0, qname).await
+            self.functions
+                .pop_message::<E>(&mut self.connection.0, qname)
+                .await
         })
     }
 
@@ -196,7 +187,7 @@ impl RbmqConnectionSync for RbmqSync {
     fn move_message(&mut self, src: &str, msg_id: &str, dst: &str) -> RbmqResult<bool> {
         self.runner.block_on(async {
             self.functions
-                .move_message(&mut self.connection.0, src, msg_id, dst)
+                .move_message(&mut self.connection.0, src, msg_id, dst, None)
                 .await
         })
     }

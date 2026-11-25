@@ -1,16 +1,20 @@
-// Loads the shared Lua scripts from /scripts at the repo root and registers
+// Loads the shared Lua scripts from the package or the repository and registers
 // them on an ioredis client via defineCommand. Each script becomes a method
 // on the client (e.g. client.rbmqSendMessage(...)).
 //
 // Why defineCommand: ioredis hashes the script once, calls EVALSHA, and falls
 // back to EVAL automatically on NOSCRIPT. No manual cache management needed.
 
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const SCRIPTS_DIR = join(__dirname, "..", "..", "scripts");
+const packagedScripts = join(__dirname, "..", "scripts");
+const checkoutRoot = join(__dirname, "..", "..");
+const SCRIPTS_DIR = existsSync(join(checkoutRoot, "Cargo.toml"))
+    ? join(checkoutRoot, "scripts")
+    : packagedScripts;
 
 function load(name) {
     return readFileSync(join(SCRIPTS_DIR, `${name}.lua`), "utf8");
@@ -26,17 +30,17 @@ function load(name) {
  */
 const SCRIPT_DEFS = [
     ["rbmqCreateQueue", "createQueue", 2],
-    ["rbmqDeleteQueue", "deleteQueue", 2],
-    ["rbmqDeleteMessage", "deleteMessage", 1],
+    ["rbmqDeleteQueue", "deleteQueue", 4],
+    ["rbmqDeleteMessage", "deleteMessage", 2],
     ["rbmqSetQueueAttributes", "setQueueAttributes", 1],
     ["rbmqGetQueueAttributes", "getQueueAttributes", 2],
-    ["rbmqChangeMessageVisibility", "changeMessageVisibility", 1],
-    ["rbmqSendMessage", "sendMessage", 2],
-    ["rbmqSendMessageBatch", "sendMessageBatch", 2],
-    ["rbmqReceiveMessage", "receiveMessage", 1],
-    ["rbmqReceiveMessageBatch", "receiveMessageBatch", 1],
-    ["rbmqReceiveMessageOrDlq", "receiveMessageOrDlq", 2],
-    ["rbmqMoveMessage", "moveMessage", 2],
+    ["rbmqChangeMessageVisibility", "changeMessageVisibility", 3],
+    ["rbmqSendMessage", "sendMessage", 4],
+    ["rbmqSendMessageBatch", "sendMessageBatch", 4],
+    ["rbmqReceiveMessage", "receiveMessage", 3],
+    ["rbmqReceiveMessageBatch", "receiveMessageBatch", 3],
+    ["rbmqReceiveMessageOrDlq", "receiveMessageOrDlq", 6],
+    ["rbmqMoveMessage", "moveMessage", 5],
 ];
 
 /**

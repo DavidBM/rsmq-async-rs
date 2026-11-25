@@ -1,16 +1,28 @@
 -- Atomically move a single message from one queue to another, preserving body+rc+fr+sent.
 -- KEYS[1]: ns:src     (source sorted set)
 -- KEYS[2]: ns:dst     (destination sorted set)
+-- KEYS[3]: ns:src:msg
+-- KEYS[4]: ns:dst:cfg
+-- KEYS[5]: ns:dst:msg
 -- ARGV[1]: message id
+-- ARGV[2]: optional receive count to guard a worker dead-letter action
 -- Returns 1 if moved, 0 if the message did not exist in the source.
 
-local src_msg = KEYS[1] .. ":msg"
-local dst_msg = KEYS[2] .. ":msg"
-local dst_cfg = KEYS[2] .. ":cfg"
+local src_msg = KEYS[3]
+local dst_msg = KEYS[5]
+local dst_cfg = KEYS[4]
 
 local packed = redis.call("HGET", src_msg, ARGV[1])
 if not packed then
     return 0
+end
+
+local p1 = string.find(packed, "\n", 1, true)
+if ARGV[2] and string.sub(packed, 1, p1 - 1) ~= ARGV[2] then
+    return 0
+end
+if redis.call("HEXISTS", dst_cfg, "vt") == 0 then
+    return redis.error_reply("QueueNotFound")
 end
 
 local time = redis.call("TIME")
@@ -20,7 +32,6 @@ local time_us_str = sec_str .. string.rep("0", 6 - #usec_str) .. usec_str
 local now_us = tonumber(time[1]) * 1000000 + tonumber(time[2])
 
 -- If src had rc>0 but fr=0, patch fr to current time so dst remains consistent.
-local p1 = string.find(packed, "\n", 1, true)
 local p2 = string.find(packed, "\n", p1 + 1, true)
 local p3 = string.find(packed, "\n", p2 + 1, true)
 local rc = tonumber(string.sub(packed, 1, p1 - 1))

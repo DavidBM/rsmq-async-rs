@@ -1,5 +1,5 @@
 {
-  "name": "rbmq",
+  "name": "@davidbm/rbmq",
   "version": "1.0.0-alpha.1",
   "description": "Redis Better Message Queue. A small, atomic Redis-backed queue. All semantics live in Lua scripts shared with the Rust implementation.",
   "type": "module",
@@ -16,6 +16,7 @@
     "node": ">=20"
   },
   "scripts": {
+    "prepack": "node tools/prepare-package.js",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:interop": "vitest run test/interop.test.js"

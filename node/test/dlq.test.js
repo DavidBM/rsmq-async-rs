@@ -24,6 +24,20 @@ describe("move_message and receive_message_or_dlq", () => {
         expect(dm.fr).toBe(fr);
     });
 
+    it("missing DLQ leaves the source job in place", async () => {
+        env = makeClient();
+        await env.rbmq.ensureQueue("src");
+        const id = await env.rbmq.sendMessage("src", "job");
+        await expect(env.rbmq.moveMessage("src", id, "missing")).rejects.toThrow(QueueNotFoundError);
+        await expect(env.rbmq.receiveMessageOrDlq("src", "missing", 0))
+            .rejects.toThrow(QueueNotFoundError);
+        const job = await env.rbmq.receiveMessage("src");
+        expect(job.id).toBe(id);
+        expect(job.rc).toBe(1n);
+        expect(await env.rbmq.ensureQueue("missing")).toBe(true);
+        expect((await env.rbmq.getQueueAttributes("missing")).msgs).toBe(0n);
+    });
+
     it("moveMessage to self rejected", async () => {
         env = makeClient();
         await env.rbmq.createQueue("q");

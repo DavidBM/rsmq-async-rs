@@ -11,13 +11,14 @@ import { attachScripts } from "./scripts.js";
 import {
     mapRedisError,
     QueueNotFoundError,
+    QueueExistsError,
     InvalidFormatError,
     InvalidValueError,
 } from "./errors.js";
 
 const USE_DEFAULT = "-1";
 // Defensive cap on duration arguments (~100 years).
-const MAX_DURATION_MS = 100 * 365 * 24 * 60 * 60 * 1000;
+export const MAX_DURATION_MS = 100 * 365 * 24 * 60 * 60 * 1000;
 const QNAME_RE = /^[A-Za-z0-9_-]+$/;
 
 /**
@@ -73,8 +74,12 @@ function durationArg(d) {
     return d == null ? USE_DEFAULT : String(durationToMs(d, 0));
 }
 
-function makeId() {
-    return randomBytes(16).toString("hex");
+function receiveCountArgs(receiveCount) {
+    return receiveCount == null ? [] : [String(receiveCount)];
+}
+
+function makeIdSuffix() {
+    return randomBytes(8).toString("hex");
 }
 
 function bodyToBuffer(message) {
@@ -105,10 +110,8 @@ function parseMessageReply(reply) {
 /**
  * Create an rbmq client backed by a user-provided ioredis instance.
  *
- * The redis instance MUST be configured to return Buffers (`{ keyPrefix: ..., showFriendlyErrorStack: ... }`
- * is fine, but for binary-safe message bodies create the Redis connection without
- * stringifying — i.e. don't use ioredis's default UTF-8 mode if you store binary
- * payloads). The client uses .callBuffer() variants where binary safety matters.
+ * Queue scripts that carry message bodies use ioredis's Buffer variants.
+ * The application can use a regular ioredis connection and send binary payloads.
  *
  * @param {import("ioredis").Redis} redis
  * @param {RbmqOptions} [options]
@@ -119,47 +122,52 @@ export function createClient(redis, options = {}) {
     attachScripts(redis);
 
     const cfgKey = (q) => `${ns}:${q}:cfg`;
+    const msgKey = (q) => `${ns}:${q}:msg`;
     const zsetKey = (q) => `${ns}:${q}`;
     const rtChannel = (q) => `${ns}:rt:${q}`;
     const queuesKey = () => `${ns}:QUEUES`;
 
+    async function ensureQueue(qname, opts = {}) {
+        validateName(qname);
+        const hiddenMs = durationToMs(opts.vt, 30_000);
+        const delayMs = durationToMs(opts.delay, 0);
+        const maxsize = opts.maxsize == null ? 65536 : Number(opts.maxsize);
+
+        checkRange(hiddenMs, 0, MAX_DURATION_MS);
+        checkRange(delayMs, 0, MAX_DURATION_MS);
+        if (maxsize !== -1) checkRange(maxsize, 1024, 65536);
+
+        let result;
+        try {
+            result = await redis.rbmqCreateQueue(
+                cfgKey(qname),
+                queuesKey(),
+                qname,
+                String(hiddenMs),
+                String(delayMs),
+                String(maxsize),
+            );
+        } catch (err) {
+            throw mapRedisError(err);
+        }
+        return Number(result) === 1;
+    }
+
     return {
         ns,
 
-        async createQueue(qname, opts = {}) {
-            validateName(qname);
-            const hiddenMs = durationToMs(opts.vt, 30_000);
-            const delayMs = durationToMs(opts.delay, 0);
-            const maxsize = opts.maxsize == null ? 65536 : Number(opts.maxsize);
+        ensureQueue,
 
-            checkRange(hiddenMs, 0, MAX_DURATION_MS);
-            checkRange(delayMs, 0, MAX_DURATION_MS);
-            if (maxsize !== -1) checkRange(maxsize, 1024, 65536);
-
-            let result;
-            try {
-                result = await redis.rbmqCreateQueue(
-                    cfgKey(qname),
-                    queuesKey(),
-                    qname,
-                    String(hiddenMs),
-                    String(delayMs),
-                    String(maxsize),
-                );
-            } catch (err) {
-                throw mapRedisError(err);
-            }
-            if (Number(result) === 0) {
-                const e = new Error("queue exists");
-                e.name = "QueueExistsError";
-                throw e;
-            }
+        async createQueue(qname, opts) {
+            if (!(await ensureQueue(qname, opts))) throw new QueueExistsError(qname);
         },
 
         async deleteQueue(qname) {
             let result;
             try {
-                result = await redis.rbmqDeleteQueue(zsetKey(qname), queuesKey(), qname);
+                result = await redis.rbmqDeleteQueue(
+                    zsetKey(qname), queuesKey(), cfgKey(qname), msgKey(qname), qname,
+                );
             } catch (err) {
                 throw mapRedisError(err);
             }
@@ -171,9 +179,11 @@ export function createClient(redis, options = {}) {
             return list || [];
         },
 
-        async deleteMessage(qname, id) {
+        async deleteMessage(qname, id, { receiveCount } = {}) {
             try {
-                const r = await redis.rbmqDeleteMessage(zsetKey(qname), id);
+                const r = await redis.rbmqDeleteMessage(
+                    zsetKey(qname), msgKey(qname), id, ...receiveCountArgs(receiveCount),
+                );
                 return Number(r) === 1;
             } catch (err) {
                 throw mapRedisError(err);
@@ -226,11 +236,19 @@ export function createClient(redis, options = {}) {
             return this.getQueueAttributes(qname);
         },
 
-        async changeMessageVisibility(qname, messageId, hidden) {
-            const ms = durationToMs(hidden, 30_000);
-            checkRange(ms, 0, MAX_DURATION_MS);
+        async changeMessageVisibility(qname, messageId, hidden, { receiveCount } = {}) {
+            const ms = hidden == null && receiveCount != null ? -1 : durationToMs(hidden, 30_000);
+            if (ms !== -1) checkRange(ms, 0, MAX_DURATION_MS);
             try {
-                await redis.rbmqChangeMessageVisibility(zsetKey(qname), messageId, String(ms));
+                const updated = await redis.rbmqChangeMessageVisibility(
+                    zsetKey(qname),
+                    cfgKey(qname),
+                    msgKey(qname),
+                    messageId,
+                    String(ms),
+                    ...receiveCountArgs(receiveCount),
+                );
+                if (receiveCount != null) return Number(updated) === 1;
             } catch (err) {
                 throw mapRedisError(err);
             }
@@ -238,25 +256,26 @@ export function createClient(redis, options = {}) {
 
         async sendMessage(qname, message, opts = {}) {
             const body = bodyToBuffer(message);
-            const id = makeId();
             const delay = opts.delay == null ? USE_DEFAULT : String(durationToMs(opts.delay, 0));
             if (delay !== USE_DEFAULT) checkRange(Number(delay), 0, MAX_DURATION_MS);
             const realtimeFlag = realtime ? "1" : "0";
 
             try {
                 // Use callBuffer-style invocation to keep the body binary-safe.
-                await redis.rbmqSendMessageBuffer(
+                const id = await redis.rbmqSendMessageBuffer(
                     Buffer.from(zsetKey(qname)),
                     Buffer.from(rtChannel(qname)),
-                    Buffer.from(id),
+                    Buffer.from(cfgKey(qname)),
+                    Buffer.from(msgKey(qname)),
+                    Buffer.from(makeIdSuffix()),
                     Buffer.from(delay),
                     Buffer.from(realtimeFlag),
                     body,
                 );
+                return id.toString();
             } catch (err) {
                 throw mapRedisError(err);
             }
-            return id;
         },
 
         async sendMessageBatch(qname, messages, opts = {}) {
@@ -265,32 +284,38 @@ export function createClient(redis, options = {}) {
             if (delay !== USE_DEFAULT) checkRange(Number(delay), 0, MAX_DURATION_MS);
             const realtimeFlag = realtime ? "1" : "0";
 
-            const ids = messages.map(() => makeId());
             const args = [
                 Buffer.from(zsetKey(qname)),
                 Buffer.from(rtChannel(qname)),
+                Buffer.from(cfgKey(qname)),
+                Buffer.from(msgKey(qname)),
                 Buffer.from(delay),
                 Buffer.from(realtimeFlag),
             ];
-            for (let i = 0; i < messages.length; i++) {
-                args.push(Buffer.from(ids[i]));
-                args.push(bodyToBuffer(messages[i]));
+            for (const message of messages) {
+                args.push(Buffer.from(makeIdSuffix()), bodyToBuffer(message));
             }
             try {
-                await redis.rbmqSendMessageBatchBuffer(...args);
+                const ids = await redis.rbmqSendMessageBatchBuffer(...args);
+                return ids.map((id) => id.toString());
             } catch (err) {
                 throw mapRedisError(err);
             }
-            return ids;
         },
 
         async receiveMessage(qname, opts = {}) {
             const hidden = durationArg(opts.vt);
+            const minimum = durationArg(opts.minimumVisibilityMs);
+            if (minimum !== USE_DEFAULT) checkRange(Number(minimum), 0, MAX_DURATION_MS);
+
             try {
                 const reply = await redis.rbmqReceiveMessageBuffer(
                     Buffer.from(zsetKey(qname)),
+                    Buffer.from(cfgKey(qname)),
+                    Buffer.from(msgKey(qname)),
                     Buffer.from(hidden),
                     Buffer.from("false"),
+                    ...(minimum === USE_DEFAULT ? [] : [Buffer.from(minimum)]),
                 );
                 return parseMessageReply(reply);
             } catch (err) {
@@ -302,6 +327,8 @@ export function createClient(redis, options = {}) {
             try {
                 const reply = await redis.rbmqReceiveMessageBuffer(
                     Buffer.from(zsetKey(qname)),
+                    Buffer.from(cfgKey(qname)),
+                    Buffer.from(msgKey(qname)),
                     Buffer.from(USE_DEFAULT),
                     Buffer.from("true"),
                 );
@@ -318,6 +345,8 @@ export function createClient(redis, options = {}) {
             try {
                 raw = await redis.rbmqReceiveMessageBatchBuffer(
                     Buffer.from(zsetKey(qname)),
+                    Buffer.from(cfgKey(qname)),
+                    Buffer.from(msgKey(qname)),
                     Buffer.from(hidden),
                     Buffer.from("false"),
                     Buffer.from(String(maxCount)),
@@ -340,6 +369,10 @@ export function createClient(redis, options = {}) {
                 const reply = await redis.rbmqReceiveMessageOrDlqBuffer(
                     Buffer.from(zsetKey(qname)),
                     Buffer.from(zsetKey(dlq)),
+                    Buffer.from(cfgKey(qname)),
+                    Buffer.from(msgKey(qname)),
+                    Buffer.from(cfgKey(dlq)),
+                    Buffer.from(msgKey(dlq)),
                     Buffer.from(hidden),
                     Buffer.from(String(maxReceives)),
                 );
@@ -349,12 +382,20 @@ export function createClient(redis, options = {}) {
             }
         },
 
-        async moveMessage(src, messageId, dst) {
+        async moveMessage(src, messageId, dst, { receiveCount } = {}) {
             validateName(src);
             validateName(dst);
             if (src === dst) throw new InvalidFormatError(`src == dst: ${src}`);
             try {
-                const r = await redis.rbmqMoveMessage(zsetKey(src), zsetKey(dst), messageId);
+                const r = await redis.rbmqMoveMessage(
+                    zsetKey(src),
+                    zsetKey(dst),
+                    msgKey(src),
+                    cfgKey(dst),
+                    msgKey(dst),
+                    messageId,
+                    ...receiveCountArgs(receiveCount),
+                );
                 return Number(r) === 1;
             } catch (err) {
                 throw mapRedisError(err);

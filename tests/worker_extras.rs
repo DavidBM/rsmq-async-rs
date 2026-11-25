@@ -2,7 +2,7 @@
 
 mod support;
 
-use rbmq::{Rbmq, RbmqConnection as _, RbmqMessage, RbmqOptions, Worker};
+use rbmq::{Rbmq, RbmqConnection as _, RbmqMessage, Worker};
 use std::convert::Infallible;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
@@ -19,26 +19,23 @@ async fn new_rbmq(ctx: &TestContext) -> Rbmq {
         .unwrap()
 }
 
-fn opts(ns: &str) -> RbmqOptions {
-    RbmqOptions {
-        ns: ns.to_string(),
-        ..Default::default()
-    }
-}
-
 #[test]
 fn worker_drains_many_messages() {
     rt().block_on(async {
         let ctx = TestContext::new();
         let mut rbmq = new_rbmq(&ctx).await;
-        rbmq.create_queue("q", Some(Duration::from_secs(60)), None, None).await.unwrap();
+        rbmq.create_queue("q", Some(Duration::from_secs(60)), None, None)
+            .await
+            .unwrap();
         for i in 0..30 {
-            rbmq.send_message("q", format!("m-{i}"), None).await.unwrap();
+            rbmq.send_message("q", format!("m-{i}"), None)
+                .await
+                .unwrap();
         }
 
         let count = Arc::new(AtomicUsize::new(0));
         let c = count.clone();
-        let worker = Worker::builder(opts(&ctx.ns))
+        let worker = Worker::builder(ctx.worker_options())
             .route("q", move |_msg: RbmqMessage<String>| {
                 let c = c.clone();
                 async move {
@@ -76,8 +73,12 @@ fn worker_routes_messages_for_two_queues_concurrently() {
     rt().block_on(async {
         let ctx = TestContext::new();
         let mut rbmq = new_rbmq(&ctx).await;
-        rbmq.create_queue("a", Some(Duration::from_secs(60)), None, None).await.unwrap();
-        rbmq.create_queue("b", Some(Duration::from_secs(60)), None, None).await.unwrap();
+        rbmq.create_queue("a", Some(Duration::from_secs(60)), None, None)
+            .await
+            .unwrap();
+        rbmq.create_queue("b", Some(Duration::from_secs(60)), None, None)
+            .await
+            .unwrap();
 
         for _ in 0..5 {
             rbmq.send_message("a", "from-a", None).await.unwrap();
@@ -91,7 +92,7 @@ fn worker_routes_messages_for_two_queues_concurrently() {
         let a = a_count.clone();
         let b = b_count.clone();
 
-        let worker = Worker::builder(opts(&ctx.ns))
+        let worker = Worker::builder(ctx.worker_options())
             .route("a", move |_: RbmqMessage<String>| {
                 let a = a.clone();
                 async move {
@@ -115,7 +116,8 @@ fn worker_routes_messages_for_two_queues_concurrently() {
             worker
                 .run_until(async move {
                     loop {
-                        if a_count.load(Ordering::SeqCst) >= 5 && b_count.load(Ordering::SeqCst) >= 5
+                        if a_count.load(Ordering::SeqCst) >= 5
+                            && b_count.load(Ordering::SeqCst) >= 5
                         {
                             return;
                         }
@@ -134,8 +136,12 @@ fn worker_dlq_per_route_with_distinct_dlqs() {
     rt().block_on(async {
         let ctx = TestContext::new();
         let mut rbmq = new_rbmq(&ctx).await;
-        rbmq.create_queue("a", Some(Duration::ZERO), None, None).await.unwrap();
-        rbmq.create_queue("b", Some(Duration::ZERO), None, None).await.unwrap();
+        rbmq.create_queue("a", Some(Duration::ZERO), None, None)
+            .await
+            .unwrap();
+        rbmq.create_queue("b", Some(Duration::ZERO), None, None)
+            .await
+            .unwrap();
         rbmq.create_queue("a_dlq", None, None, None).await.unwrap();
         rbmq.create_queue("b_dlq", None, None, None).await.unwrap();
 
@@ -151,7 +157,7 @@ fn worker_dlq_per_route_with_distinct_dlqs() {
         }
         impl std::error::Error for Boom {}
 
-        let worker = Worker::builder(opts(&ctx.ns))
+        let worker = Worker::builder(ctx.worker_options())
             .route("a", |_: RbmqMessage<String>| async { Err::<(), _>(Boom) })
             .route("b", |_: RbmqMessage<String>| async { Err::<(), _>(Boom) })
             .dlq_for("a", "a_dlq", 0)
@@ -176,10 +182,18 @@ fn worker_dlq_with_route_specific_overrides_global() {
     rt().block_on(async {
         let ctx = TestContext::new();
         let mut rbmq = new_rbmq(&ctx).await;
-        rbmq.create_queue("a", Some(Duration::ZERO), None, None).await.unwrap();
-        rbmq.create_queue("b", Some(Duration::ZERO), None, None).await.unwrap();
-        rbmq.create_queue("global_dlq", None, None, None).await.unwrap();
-        rbmq.create_queue("a_specific_dlq", None, None, None).await.unwrap();
+        rbmq.create_queue("a", Some(Duration::ZERO), None, None)
+            .await
+            .unwrap();
+        rbmq.create_queue("b", Some(Duration::ZERO), None, None)
+            .await
+            .unwrap();
+        rbmq.create_queue("global_dlq", None, None, None)
+            .await
+            .unwrap();
+        rbmq.create_queue("a_specific_dlq", None, None, None)
+            .await
+            .unwrap();
 
         rbmq.send_message("a", "x", None).await.unwrap();
         rbmq.send_message("b", "y", None).await.unwrap();
@@ -193,7 +207,7 @@ fn worker_dlq_with_route_specific_overrides_global() {
         }
         impl std::error::Error for Boom {}
 
-        let worker = Worker::builder(opts(&ctx.ns))
+        let worker = Worker::builder(ctx.worker_options())
             .route("a", |_: RbmqMessage<String>| async { Err::<(), _>(Boom) })
             .route("b", |_: RbmqMessage<String>| async { Err::<(), _>(Boom) })
             .dlq("global_dlq", 0)
@@ -203,7 +217,9 @@ fn worker_dlq_with_route_specific_overrides_global() {
             .await
             .unwrap();
 
-        let _ = worker.run_until(tokio::time::sleep(Duration::from_millis(500))).await;
+        let _ = worker
+            .run_until(tokio::time::sleep(Duration::from_millis(500)))
+            .await;
 
         let a_specific = rbmq.get_queue_attributes("a_specific_dlq").await.unwrap();
         let global = rbmq.get_queue_attributes("global_dlq").await.unwrap();
@@ -221,7 +237,9 @@ fn worker_continues_after_handler_panic_in_separate_run_call() {
     rt().block_on(async {
         let ctx = TestContext::new();
         let mut rbmq = new_rbmq(&ctx).await;
-        rbmq.create_queue("q", Some(Duration::from_millis(100)), None, None).await.unwrap();
+        rbmq.create_queue("q", Some(Duration::from_millis(100)), None, None)
+            .await
+            .unwrap();
         rbmq.send_message("q", "fail-then-ok", None).await.unwrap();
 
         let attempts = Arc::new(AtomicUsize::new(0));
@@ -236,7 +254,7 @@ fn worker_continues_after_handler_panic_in_separate_run_call() {
         }
         impl std::error::Error for Boom {}
 
-        let worker = Worker::builder(opts(&ctx.ns))
+        let worker = Worker::builder(ctx.worker_options())
             .route("q", move |_: RbmqMessage<String>| {
                 let a = a.clone();
                 let n = a.fetch_add(1, Ordering::SeqCst);
@@ -253,7 +271,9 @@ fn worker_continues_after_handler_panic_in_separate_run_call() {
             .await
             .unwrap();
 
-        let _ = worker.run_until(tokio::time::sleep(Duration::from_millis(800))).await;
+        let _ = worker
+            .run_until(tokio::time::sleep(Duration::from_millis(800)))
+            .await;
         // First attempt failed (and was left for redelivery), second succeeded and deleted.
         assert!(attempts.load(Ordering::SeqCst) >= 2);
         let attrs = rbmq.get_queue_attributes("q").await.unwrap();
@@ -268,7 +288,7 @@ fn worker_with_no_messages_idles_without_error() {
         let mut rbmq = new_rbmq(&ctx).await;
         rbmq.create_queue("q", None, None, None).await.unwrap();
 
-        let worker = Worker::builder(opts(&ctx.ns))
+        let worker = Worker::builder(ctx.worker_options())
             .route("q", |_: RbmqMessage<String>| async {
                 Ok::<(), Infallible>(())
             })
@@ -292,7 +312,7 @@ fn worker_shutdown_signal_is_respected_promptly() {
         let mut rbmq = new_rbmq(&ctx).await;
         rbmq.create_queue("q", None, None, None).await.unwrap();
 
-        let worker = Worker::builder(opts(&ctx.ns))
+        let worker = Worker::builder(ctx.worker_options())
             .route("q", |_: RbmqMessage<String>| async {
                 Ok::<(), Infallible>(())
             })
@@ -317,7 +337,9 @@ fn worker_error_path_logs_and_redelivers() {
     rt().block_on(async {
         let ctx = TestContext::new();
         let mut rbmq = new_rbmq(&ctx).await;
-        rbmq.create_queue("q", Some(Duration::from_millis(100)), None, None).await.unwrap();
+        rbmq.create_queue("q", Some(Duration::from_millis(100)), None, None)
+            .await
+            .unwrap();
         rbmq.send_message("q", "hi", None).await.unwrap();
 
         let count = Arc::new(AtomicUsize::new(0));
@@ -332,7 +354,7 @@ fn worker_error_path_logs_and_redelivers() {
         }
         impl std::error::Error for Boom {}
 
-        let worker = Worker::builder(opts(&ctx.ns))
+        let worker = Worker::builder(ctx.worker_options())
             .route("q", move |_: RbmqMessage<String>| {
                 let c = c.clone();
                 async move {
@@ -345,7 +367,9 @@ fn worker_error_path_logs_and_redelivers() {
             .await
             .unwrap();
 
-        let _ = worker.run_until(tokio::time::sleep(Duration::from_millis(500))).await;
+        let _ = worker
+            .run_until(tokio::time::sleep(Duration::from_millis(500)))
+            .await;
         // Without DLQ, message is redelivered repeatedly.
         assert!(count.load(Ordering::SeqCst) >= 2);
     });
@@ -356,13 +380,17 @@ fn worker_decode_error_does_not_call_handler() {
     rt().block_on(async {
         let ctx = TestContext::new();
         let mut rbmq = new_rbmq(&ctx).await;
-        rbmq.create_queue("q", Some(Duration::from_millis(100)), None, None).await.unwrap();
+        rbmq.create_queue("q", Some(Duration::from_millis(100)), None, None)
+            .await
+            .unwrap();
         // Send invalid UTF-8 bytes so String decode fails.
-        rbmq.send_message("q", vec![0xff, 0xfe], None).await.unwrap();
+        rbmq.send_message("q", vec![0xff, 0xfe], None)
+            .await
+            .unwrap();
 
         let calls = Arc::new(AtomicUsize::new(0));
         let c = calls.clone();
-        let worker = Worker::builder(opts(&ctx.ns))
+        let worker = Worker::builder(ctx.worker_options())
             .route("q", move |_: RbmqMessage<String>| {
                 let c = c.clone();
                 async move {
@@ -375,7 +403,9 @@ fn worker_decode_error_does_not_call_handler() {
             .await
             .unwrap();
 
-        let _ = worker.run_until(tokio::time::sleep(Duration::from_millis(300))).await;
+        let _ = worker
+            .run_until(tokio::time::sleep(Duration::from_millis(300)))
+            .await;
         // The handler is NEVER called for un-decodable bodies.
         assert_eq!(calls.load(Ordering::SeqCst), 0);
     });
@@ -387,11 +417,13 @@ fn worker_handler_with_vec_u8_decodes_anything() {
         let ctx = TestContext::new();
         let mut rbmq = new_rbmq(&ctx).await;
         rbmq.create_queue("q", None, None, None).await.unwrap();
-        rbmq.send_message("q", vec![0xff, 0x00, 0x42], None).await.unwrap();
+        rbmq.send_message("q", vec![0xff, 0x00, 0x42], None)
+            .await
+            .unwrap();
 
         let got = Arc::new(std::sync::Mutex::new(Vec::<u8>::new()));
         let g = got.clone();
-        let worker = Worker::builder(opts(&ctx.ns))
+        let worker = Worker::builder(ctx.worker_options())
             .route("q", move |m: RbmqMessage<Vec<u8>>| {
                 let g = g.clone();
                 async move {
@@ -404,7 +436,9 @@ fn worker_handler_with_vec_u8_decodes_anything() {
             .await
             .unwrap();
 
-        let _ = worker.run_until(tokio::time::sleep(Duration::from_millis(500))).await;
+        let _ = worker
+            .run_until(tokio::time::sleep(Duration::from_millis(500)))
+            .await;
         assert_eq!(*got.lock().unwrap(), vec![0xff, 0x00, 0x42]);
     });
 }

@@ -10,24 +10,44 @@ jobs:
   rust:
     runs-on: ubuntu-latest
 
-    services:
-      redis:
-        image: redis:7
-        ports:
-          - 6379:6379
-        options: >-
-          --health-cmd "redis-cli ping"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-
     strategy:
       fail-fast: false
       matrix:
-        features:
-          - "tokio-comp,sync,serde,worker"
-          - "tokio-comp,sync"
-          - "tokio-comp"
+        include:
+          - image: redis:7
+            cli: redis-cli
+            features: tokio-comp,sync,serde,worker
+          - image: redis:7
+            cli: redis-cli
+            features: tokio-comp,sync
+          - image: redis:7
+            cli: redis-cli
+            features: tokio-comp
+          - image: redis:8
+            cli: redis-cli
+            features: tokio-comp,sync,serde,worker
+          - image: valkey/valkey:9
+            cli: valkey-cli
+            features: tokio-comp,sync,serde,worker
+          - image: docker.dragonflydb.io/dragonflydb/dragonfly@sha256:94891bb22ce2fb0f7a5a3ff1bb3b2fbbc5830e2523293e47723d87fa3e5b1184
+            cli: redis-cli
+            features: tokio-comp,sync,serde,worker
+            docker_options: --ulimit memlock=-1
+
+    services:
+      queue-store:
+        image: ${{ matrix.image }}
+        env:
+          DFLY_proactor_threads: "2"
+          DFLY_maxmemory: 768mb
+        ports:
+          - 6379:6379
+        options: >-
+          ${{ matrix.docker_options }}
+          --health-cmd "${{ matrix.cli }} ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
 
     steps:
       - uses: actions/checkout@v4
@@ -66,41 +86,31 @@ jobs:
 
   node:
     runs-on: ubuntu-latest
-    services:
-      redis:
-        image: redis:7
-        ports:
-          - 6379:6379
-        options: >-
-          --health-cmd "redis-cli ping"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-    defaults:
-      run:
-        working-directory: node
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: "22"
-          cache: "npm"
-          cache-dependency-path: node/package-lock.json
-      - run: npm ci
-      - run: npm run test
-        env:
-          REDIS_HOST: 127.0.0.1
-          REDIS_PORT: 6379
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - image: redis:7
+            cli: redis-cli
+          - image: redis:8
+            cli: redis-cli
+          - image: valkey/valkey:9
+            cli: valkey-cli
+          - image: docker.dragonflydb.io/dragonflydb/dragonfly@sha256:94891bb22ce2fb0f7a5a3ff1bb3b2fbbc5830e2523293e47723d87fa3e5b1184
+            cli: redis-cli
+            docker_options: --ulimit memlock=-1
 
-  interop:
-    runs-on: ubuntu-latest
     services:
-      redis:
-        image: redis:7
+      queue-store:
+        image: ${{ matrix.image }}
+        env:
+          DFLY_proactor_threads: "2"
+          DFLY_maxmemory: 768mb
         ports:
           - 6379:6379
         options: >-
-          --health-cmd "redis-cli ping"
+          ${{ matrix.docker_options }}
+          --health-cmd "${{ matrix.cli }} ping"
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
@@ -114,13 +124,29 @@ jobs:
           cache: "npm"
           cache-dependency-path: node/package-lock.json
       - name: Build Rust interop helper
-        run: cargo build --example interop_helper --features "serde,tokio-comp"
-      - name: Install Node deps
+        run: cargo build --example interop_helper --no-default-features --features serde,tokio-comp
+      - run: npm ci
         working-directory: node
-        run: npm ci
-      - name: Run interop tests
+      - name: Node and Rust interop tests
         working-directory: node
-        run: npx vitest run test/interop.test.js
+        run: npm test
         env:
           REDIS_HOST: 127.0.0.1
           REDIS_PORT: 6379
+      - name: Check the packed Node package
+        if: matrix.image == 'redis:8'
+        working-directory: node
+        run: |
+          pack_dir=$(mktemp -d)
+          npm pack --pack-destination "$pack_dir"
+          cd "$(mktemp -d)"
+          npm install --no-audit --no-fund "$pack_dir"/*.tgz
+          node --input-type=module <<'JS'
+          import assert from 'node:assert/strict';
+          import Redis from 'ioredis';
+          import { createClient } from '@davidbm/rbmq';
+          const redis = new Redis({ lazyConnect: true });
+          createClient(redis);
+          assert.equal(typeof redis.rbmqCreateQueue, 'function');
+          redis.disconnect();
+          JS

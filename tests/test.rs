@@ -1,6 +1,6 @@
 mod support;
 
-use rbmq::{RedisBytes, Rbmq, RbmqConnection as _, RbmqError};
+use rbmq::{Rbmq, RbmqConnection as _, RbmqError, RedisBytes};
 use std::{convert::TryFrom, time::Duration};
 use support::*;
 

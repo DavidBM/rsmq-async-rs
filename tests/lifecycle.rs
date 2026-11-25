@@ -24,7 +24,9 @@ fn create_then_delete_then_create_again_works() {
         q.delete_queue("q").await.unwrap();
 
         // Recreate with different attrs.
-        q.create_queue("q", Some(Duration::from_secs(60)), None, Some(2048)).await.unwrap();
+        q.create_queue("q", Some(Duration::from_secs(60)), None, Some(2048))
+            .await
+            .unwrap();
         let attrs = q.get_queue_attributes("q").await.unwrap();
         assert_eq!(attrs.vt, Duration::from_secs(60));
         assert_eq!(attrs.maxsize, 2048);
@@ -63,7 +65,10 @@ fn delete_nonexistent_queue_errors() {
     rt().block_on(async {
         let ctx = TestContext::new();
         let mut q = new_rbmq(&ctx).await;
-        assert!(matches!(q.delete_queue("ghost").await, Err(RbmqError::QueueNotFound)));
+        assert!(matches!(
+            q.delete_queue("ghost").await,
+            Err(RbmqError::QueueNotFound)
+        ));
     });
 }
 
@@ -143,16 +148,22 @@ fn set_queue_attributes_can_set_each_field_independently() {
         let mut q = new_rbmq(&ctx).await;
         q.create_queue("q", None, None, None).await.unwrap();
 
-        q.set_queue_attributes("q", Some(Duration::from_secs(120)), None, None).await.unwrap();
+        q.set_queue_attributes("q", Some(Duration::from_secs(120)), None, None)
+            .await
+            .unwrap();
         let attrs = q.get_queue_attributes("q").await.unwrap();
         assert_eq!(attrs.vt, Duration::from_secs(120));
 
-        q.set_queue_attributes("q", None, Some(Duration::from_secs(15)), None).await.unwrap();
+        q.set_queue_attributes("q", None, Some(Duration::from_secs(15)), None)
+            .await
+            .unwrap();
         let attrs = q.get_queue_attributes("q").await.unwrap();
         assert_eq!(attrs.delay, Duration::from_secs(15));
         assert_eq!(attrs.vt, Duration::from_secs(120));
 
-        q.set_queue_attributes("q", None, None, Some(2048)).await.unwrap();
+        q.set_queue_attributes("q", None, None, Some(2048))
+            .await
+            .unwrap();
         let attrs = q.get_queue_attributes("q").await.unwrap();
         assert_eq!(attrs.maxsize, 2048);
         assert_eq!(attrs.vt, Duration::from_secs(120));
@@ -179,14 +190,20 @@ fn get_queue_attributes_msgs_count_reflects_sent_minus_deleted() {
     rt().block_on(async {
         let ctx = TestContext::new();
         let mut q = new_rbmq(&ctx).await;
-        q.create_queue("q", Some(Duration::ZERO), None, None).await.unwrap();
+        q.create_queue("q", Some(Duration::ZERO), None, None)
+            .await
+            .unwrap();
 
         for _ in 0..7 {
             q.send_message("q", "x", None).await.unwrap();
         }
         // Delete 3.
         for _ in 0..3 {
-            let m = q.receive_message::<String>("q", None).await.unwrap().unwrap();
+            let m = q
+                .receive_message::<String>("q", None)
+                .await
+                .unwrap()
+                .unwrap();
             q.delete_message("q", &m.id).await.unwrap();
         }
         let attrs = q.get_queue_attributes("q").await.unwrap();
@@ -200,13 +217,18 @@ fn hidden_count_reflects_in_flight_messages() {
     rt().block_on(async {
         let ctx = TestContext::new();
         let mut q = new_rbmq(&ctx).await;
-        q.create_queue("q", Some(Duration::from_secs(60)), None, None).await.unwrap();
+        q.create_queue("q", Some(Duration::from_secs(60)), None, None)
+            .await
+            .unwrap();
         for _ in 0..5 {
             q.send_message("q", "x", None).await.unwrap();
         }
         // Receive 2 (they become hidden under the 60s vt).
         for _ in 0..2 {
-            q.receive_message::<String>("q", None).await.unwrap().unwrap();
+            q.receive_message::<String>("q", None)
+                .await
+                .unwrap()
+                .unwrap();
         }
         let attrs = q.get_queue_attributes("q").await.unwrap();
         assert_eq!(attrs.msgs, 5);
@@ -222,7 +244,9 @@ fn modified_changes_after_set_queue_attributes() {
         q.create_queue("q", None, None, None).await.unwrap();
         let before = q.get_queue_attributes("q").await.unwrap();
         tokio::time::sleep(Duration::from_secs(1)).await;
-        q.set_queue_attributes("q", Some(Duration::from_secs(99)), None, None).await.unwrap();
+        q.set_queue_attributes("q", Some(Duration::from_secs(99)), None, None)
+            .await
+            .unwrap();
         let after = q.get_queue_attributes("q").await.unwrap();
         assert!(after.modified >= before.modified);
         assert_eq!(after.vt, Duration::from_secs(99));
@@ -235,7 +259,9 @@ fn create_queue_with_max_long_delay_accepted() {
         let ctx = TestContext::new();
         let mut q = new_rbmq(&ctx).await;
         // 1 hour delay.
-        q.create_queue("q", None, Some(Duration::from_secs(3600)), None).await.unwrap();
+        q.create_queue("q", None, Some(Duration::from_secs(3600)), None)
+            .await
+            .unwrap();
         let attrs = q.get_queue_attributes("q").await.unwrap();
         assert_eq!(attrs.delay, Duration::from_secs(3600));
     });
@@ -248,7 +274,10 @@ fn create_queue_with_excessive_duration_rejected() {
         let mut q = new_rbmq(&ctx).await;
         // 200 years - exceeds the 100-year defensive cap.
         let duration = Duration::from_secs(200 * 365 * 24 * 60 * 60);
-        assert!(q.create_queue("q", Some(duration), None, None).await.is_err());
+        assert!(q
+            .create_queue("q", Some(duration), None, None)
+            .await
+            .is_err());
     });
 }
 

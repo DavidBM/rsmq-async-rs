@@ -64,20 +64,7 @@ impl Clone for PooledRbmq {
 
 impl PooledRbmq {
     pub async fn new(options: RbmqOptions, pool_options: PoolOptions) -> RbmqResult<PooledRbmq> {
-        let mut redis_info = redis::RedisConnectionInfo::default()
-            .set_db(options.db.into())
-            .set_protocol(options.protocol);
-        if let Some(username) = options.username {
-            redis_info = redis_info.set_username(username);
-        }
-        if let Some(password) = options.password {
-            redis_info = redis_info.set_password(password);
-        }
-        let conn_info = format!("redis://{}:{}", options.host, options.port)
-            .parse::<redis::ConnectionInfo>()?
-            .set_redis_settings(redis_info);
-
-        let client = redis::Client::open(conn_info)?;
+        let client = options.redis_client()?;
         let manager = RedisConnectionManager::from_client(client)?;
         let mut builder = bb8::Pool::builder();
         if let Some(value) = pool_options.max_size {
@@ -137,7 +124,9 @@ impl RbmqConnection for PooledRbmq {
 
     async fn delete_message(&mut self, qname: &str, id: &str) -> RbmqResult<bool> {
         let mut conn = self.pool.get().await?;
-        self.functions.delete_message(&mut conn, qname, id).await
+        self.functions
+            .delete_message(&mut conn, qname, id, None)
+            .await
     }
 
     async fn delete_queue(&mut self, qname: &str) -> RbmqResult<()> {
@@ -226,7 +215,7 @@ impl RbmqConnection for PooledRbmq {
     async fn move_message(&mut self, src: &str, msg_id: &str, dst: &str) -> RbmqResult<bool> {
         let mut conn = self.pool.get().await?;
         self.functions
-            .move_message(&mut conn, src, msg_id, dst)
+            .move_message(&mut conn, src, msg_id, dst, None)
             .await
     }
 

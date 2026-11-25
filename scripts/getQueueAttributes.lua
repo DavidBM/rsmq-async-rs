@@ -7,7 +7,7 @@ local now_us = tonumber(time[1]) * 1000000 + tonumber(time[2])
 
 local attrs = redis.call("HMGET", KEYS[1], "vt", "delay", "maxsize", "totalrecv", "totalsent", "created", "modified")
 local msgs = redis.call("ZCARD", KEYS[2])
-local hiddenmsgs = redis.call("ZCOUNT", KEYS[2], now_us, "+inf")
+local hiddenmsgs = redis.call("ZCOUNT", KEYS[2], "(" .. string.format("%.0f", now_us), "+inf")
 
 -- Flat array:
 -- [1..2]  time (seconds, microseconds)

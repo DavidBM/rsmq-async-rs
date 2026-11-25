@@ -1,6 +1,6 @@
 use crate::types::RedisBytes;
 use crate::types::{RbmqMessage, RbmqQueueAttributes};
-use crate::RbmqResult;
+use crate::{RbmqError, RbmqResult};
 use core::convert::TryFrom;
 use std::future::Future;
 use std::time::Duration;
@@ -32,6 +32,20 @@ pub trait RbmqConnection {
         delay: Option<Duration>,
         maxsize: Option<i64>,
     ) -> impl Future<Output = RbmqResult<()>> + Send;
+
+    /// Creates a queue with default settings if it does not exist.
+    ///
+    /// Returns `true` if the queue was created. Existing queues keep their settings and messages.
+    fn ensure_queue(&mut self, qname: &str) -> impl Future<Output = RbmqResult<bool>> + Send {
+        let created = self.create_queue(qname, None, None, None);
+        async move {
+            match created.await {
+                Ok(()) => Ok(true),
+                Err(RbmqError::QueueExists) => Ok(false),
+                Err(error) => Err(error),
+            }
+        }
+    }
 
     /// Deletes a message from the queue.
     ///
@@ -160,9 +174,8 @@ pub trait RbmqConnection {
     /// (score = current time). Returns `true` if the message was found in `src`,
     /// `false` if it didn't exist there. Rejects `src == dst`.
     ///
-    /// `dst` must be a queue that already exists (created via `create_queue`); this
-    /// method does not initialize the destination queue's configuration, only inserts
-    /// the message and bumps `totalsent`.
+    /// Create `dst` first using `create_queue` or `ensure_queue`. If it is missing, the
+    /// move returns `QueueNotFound` and leaves the source message in place.
     fn move_message(
         &mut self,
         src: &str,
@@ -216,6 +229,17 @@ pub trait RbmqConnectionSync {
         delay: Option<Duration>,
         maxsize: Option<i64>,
     ) -> RbmqResult<()>;
+
+    /// Creates a queue with default settings if it does not exist.
+    ///
+    /// Returns `true` if the queue was created. Existing queues keep their settings and messages.
+    fn ensure_queue(&mut self, qname: &str) -> RbmqResult<bool> {
+        match self.create_queue(qname, None, None, None) {
+            Ok(()) => Ok(true),
+            Err(RbmqError::QueueExists) => Ok(false),
+            Err(error) => Err(error),
+        }
+    }
 
     /// Deletes a message from the queue.
     ///

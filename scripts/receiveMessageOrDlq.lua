@@ -1,17 +1,21 @@
 -- Atomic receive with consumer-side DLQ routing.
 -- KEYS[1]: ns:src       (source sorted set)
 -- KEYS[2]: ns:dlq       (destination DLQ sorted set)
+-- KEYS[3]: ns:src:cfg
+-- KEYS[4]: ns:src:msg
+-- KEYS[5]: ns:dlq:cfg
+-- KEYS[6]: ns:dlq:msg
 -- ARGV[1]: hidden ms ("-1" => use queue default `vt`)
 -- ARGV[2]: max_receives
 -- Returns { found, id, body, rc, fr, sent }.
--- Errors: "QueueNotFound" if the source queue doesn't exist.
+-- Errors: "QueueNotFound" if either queue does not exist.
 
-local src_cfg = KEYS[1] .. ":cfg"
-local src_msg = KEYS[1] .. ":msg"
-local dlq_cfg = KEYS[2] .. ":cfg"
-local dlq_msg = KEYS[2] .. ":msg"
+local src_cfg = KEYS[3]
+local src_msg = KEYS[4]
+local dlq_cfg = KEYS[5]
+local dlq_msg = KEYS[6]
 
-if redis.call("EXISTS", src_cfg) == 0 then
+if redis.call("HEXISTS", src_cfg, "vt") == 0 or redis.call("HEXISTS", dlq_cfg, "vt") == 0 then
     return redis.error_reply("QueueNotFound")
 end
 

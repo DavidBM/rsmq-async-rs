@@ -23,6 +23,25 @@ pub struct RbmqOptions {
     pub protocol: ProtocolVersion,
 }
 
+impl RbmqOptions {
+    pub(crate) fn redis_client(&self) -> redis::RedisResult<redis::Client> {
+        let mut settings = redis::RedisConnectionInfo::default()
+            .set_db(self.db.into())
+            .set_protocol(self.protocol);
+        if let Some(username) = self.username.as_ref() {
+            settings = settings.set_username(username.as_str());
+        }
+        if let Some(password) = self.password.as_ref() {
+            settings = settings.set_password(password.as_str());
+        }
+        let connection = "redis://localhost"
+            .parse::<redis::ConnectionInfo>()?
+            .set_addr(redis::ConnectionAddr::Tcp(self.host.clone(), self.port))
+            .set_redis_settings(settings);
+        redis::Client::open(connection)
+    }
+}
+
 impl Default for RbmqOptions {
     fn default() -> Self {
         RbmqOptions {
@@ -47,9 +66,9 @@ pub struct RbmqMessage<T = String> {
     pub message: T,
     /// Number of times the message was received by a client
     pub rc: u64,
-    /// Timestamp (epoch in seconds) of when was this message received
+    /// First receive timestamp in microseconds since the Unix epoch
     pub fr: u64,
-    /// Timestamp (epoch in seconds) of when was this message sent
+    /// Send timestamp in microseconds since the Unix epoch
     pub sent: u64,
 }
 

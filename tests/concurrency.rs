@@ -58,7 +58,13 @@ fn parallel_receivers_never_deliver_duplicates() {
         all.extend(h2.await.unwrap());
         let unique: HashSet<_> = all.iter().collect();
         // Every receive returned a distinct message; together they covered all N.
-        assert_eq!(unique.len(), all.len(), "duplicates: {} vs {}", unique.len(), all.len());
+        assert_eq!(
+            unique.len(),
+            all.len(),
+            "duplicates: {} vs {}",
+            unique.len(),
+            all.len()
+        );
         assert_eq!(unique.len(), N);
     });
 }
@@ -100,7 +106,9 @@ fn parallel_send_and_receive_no_loss() {
     rt().block_on(async {
         let ctx = TestContext::new();
         let mut q = new_rbmq(&ctx).await;
-        q.create_queue("q", Some(Duration::ZERO), None, None).await.unwrap();
+        q.create_queue("q", Some(Duration::ZERO), None, None)
+            .await
+            .unwrap();
 
         const N: usize = 50;
 
@@ -165,11 +173,17 @@ fn sequential_sends_deliver_in_order() {
         q.create_queue("q", None, None, None).await.unwrap();
 
         for i in 0..50 {
-            q.send_message("q", format!("m-{i:03}"), None).await.unwrap();
+            q.send_message("q", format!("m-{i:03}"), None)
+                .await
+                .unwrap();
         }
 
         for i in 0..50 {
-            let m = q.receive_message::<String>("q", None).await.unwrap().unwrap();
+            let m = q
+                .receive_message::<String>("q", None)
+                .await
+                .unwrap()
+                .unwrap();
             assert_eq!(m.message, format!("m-{i:03}"));
             q.delete_message("q", &m.id).await.unwrap();
         }
@@ -177,23 +191,29 @@ fn sequential_sends_deliver_in_order() {
 }
 
 #[test]
-fn batch_send_then_receive_returns_same_set() {
-    // Within a batch all messages share the same score (same TIME inside the script);
-    // ZRANGE ties are broken lexicographically by the id, so receive order does NOT
-    // match input order. The set of payloads and the count must match exactly.
+fn batch_send_preserves_input_order_at_equal_visibility() {
     rt().block_on(async {
         let ctx = TestContext::new();
         let mut q = new_rbmq(&ctx).await;
-        q.create_queue("q", None, None, None).await.unwrap();
+        q.ensure_queue("q").await.unwrap();
 
         let payloads: Vec<String> = (0..30).map(|i| format!("b-{i:03}")).collect();
-        q.send_message_batch("q", payloads.clone(), None).await.unwrap();
+        let ids = q
+            .send_message_batch("q", payloads.clone(), None)
+            .await
+            .unwrap();
 
-        let received = q.receive_message_batch::<String>("q", None, 30).await.unwrap();
-        assert_eq!(received.len(), 30);
-        let got: HashSet<String> = received.into_iter().map(|m| m.message).collect();
-        let want: HashSet<String> = payloads.into_iter().collect();
-        assert_eq!(got, want);
+        let received = q
+            .receive_message_batch::<String>("q", None, 30)
+            .await
+            .unwrap();
+        assert_eq!(received.len(), payloads.len());
+        for ((message, expected_payload), expected_id) in
+            received.into_iter().zip(payloads).zip(ids)
+        {
+            assert_eq!(message.message, expected_payload);
+            assert_eq!(message.id, expected_id);
+        }
     });
 }
 
@@ -206,7 +226,9 @@ fn totalsent_and_totalrecv_are_consistent_after_parallel_work() {
     rt().block_on(async {
         let ctx = TestContext::new();
         let mut q = new_rbmq(&ctx).await;
-        q.create_queue("q", Some(Duration::ZERO), None, None).await.unwrap();
+        q.create_queue("q", Some(Duration::ZERO), None, None)
+            .await
+            .unwrap();
 
         let qa = new_rbmq(&ctx).await;
         let qb = new_rbmq(&ctx).await;
@@ -227,7 +249,11 @@ fn totalsent_and_totalrecv_are_consistent_after_parallel_work() {
 
         let mut got = 0;
         for _ in 0..200 {
-            if q.receive_message::<String>("q", None).await.unwrap().is_some() {
+            if q.receive_message::<String>("q", None)
+                .await
+                .unwrap()
+                .is_some()
+            {
                 got += 1;
             } else {
                 break;
@@ -250,7 +276,11 @@ fn double_delete_returns_false_second_time() {
         let mut q = new_rbmq(&ctx).await;
         q.create_queue("q", None, None, None).await.unwrap();
         q.send_message("q", "hi", None).await.unwrap();
-        let m = q.receive_message::<String>("q", None).await.unwrap().unwrap();
+        let m = q
+            .receive_message::<String>("q", None)
+            .await
+            .unwrap()
+            .unwrap();
         assert!(q.delete_message("q", &m.id).await.unwrap());
         assert!(!q.delete_message("q", &m.id).await.unwrap());
     });
@@ -262,7 +292,10 @@ fn delete_unknown_id_returns_false() {
         let ctx = TestContext::new();
         let mut q = new_rbmq(&ctx).await;
         q.create_queue("q", None, None, None).await.unwrap();
-        assert!(!q.delete_message("q", "ffffffffffffffffffffffffffffffff").await.unwrap());
+        assert!(!q
+            .delete_message("q", "ffffffffffffffffffffffffffffffff")
+            .await
+            .unwrap());
     });
 }
 
@@ -298,7 +331,10 @@ fn receive_batch_on_empty_queue_returns_empty_vec() {
         let ctx = TestContext::new();
         let mut q = new_rbmq(&ctx).await;
         q.create_queue("q", None, None, None).await.unwrap();
-        let v = q.receive_message_batch::<String>("q", None, 10).await.unwrap();
+        let v = q
+            .receive_message_batch::<String>("q", None, 10)
+            .await
+            .unwrap();
         assert!(v.is_empty());
     });
 }
@@ -310,7 +346,10 @@ fn receive_batch_with_max_count_zero_returns_empty_without_redis_call() {
         let mut q = new_rbmq(&ctx).await;
         q.create_queue("q", None, None, None).await.unwrap();
         q.send_message("q", "hi", None).await.unwrap();
-        let v = q.receive_message_batch::<String>("q", None, 0).await.unwrap();
+        let v = q
+            .receive_message_batch::<String>("q", None, 0)
+            .await
+            .unwrap();
         assert!(v.is_empty());
     });
 }
@@ -321,7 +360,10 @@ fn send_batch_with_empty_input_returns_empty_ids() {
         let ctx = TestContext::new();
         let mut q = new_rbmq(&ctx).await;
         q.create_queue("q", None, None, None).await.unwrap();
-        let ids = q.send_message_batch::<String>("q", Vec::new(), None).await.unwrap();
+        let ids = q
+            .send_message_batch::<String>("q", Vec::new(), None)
+            .await
+            .unwrap();
         assert!(ids.is_empty());
         let attrs = q.get_queue_attributes("q").await.unwrap();
         assert_eq!(attrs.totalsent, 0);
@@ -343,7 +385,9 @@ fn ids_unique_across_thousand_sends() {
         for i in 0..1000 {
             let id = q.send_message("q", format!("m{i}"), None).await.unwrap();
             assert_eq!(id.len(), 32, "ID should be 32 hex chars");
-            assert!(id.chars().all(|c| c.is_ascii_hexdigit() && c.is_ascii_lowercase() || c.is_ascii_digit()));
+            assert!(id
+                .chars()
+                .all(|c| c.is_ascii_hexdigit() && c.is_ascii_lowercase() || c.is_ascii_digit()));
             ids.insert(id);
         }
         assert_eq!(ids.len(), 1000);

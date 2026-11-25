@@ -1,5 +1,17 @@
 # Changelog
 
+## Unreleased
+
+- Add restart-safe queue setup on both clients and URL-first Rust client and worker constructors.
+- Reserve a processing lease from the moment a worker receives a job. Stale workers cannot acknowledge, renew, or dead-letter a newer delivery. Handler failures retry using the queue's visibility timeout.
+- Refuse dead-letter moves to a missing destination before changing the source queue.
+- Declare every Lua key explicitly so Dragonfly can run the same operations with its default script checks and the existing storage keys.
+- Preserve enqueue order when new messages share a visibility timestamp, including within batches. IDs remain opaque 32-character hex strings.
+- Test Rust, Node, and cross-language interoperability against Redis 7, Redis 8, Valkey 9, and Dragonfly 2.1.
+
+- Prepare the Node.js alpha as `@davidbm/rbmq` and include the shared Lua scripts and MIT license in its tarball.
+- Document how to install the alpha from source and where to find the published `rsmq_async` 18.x source.
+
 ## rbmq 1.0.0-alpha.1 - 2026-05-10
 
 The crate has been renamed from `rsmq_async` to `rbmq` and re-architected. **Not wire-compatible** with `rsmq_async` v17/v18 or with the original `smrchy/rsmq` Node package. Users needing the JS-rsmq wire format should stay on `rsmq_async` v17 or v18.

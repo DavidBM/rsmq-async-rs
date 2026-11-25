@@ -41,6 +41,74 @@ describe("worker helper", () => {
         expect(a.msgs).toBe(0n);
     });
 
+    it("processing protects a zero-vt queue and a stale ack leaves the new delivery", async () => {
+        env = makeClient();
+        expect(await env.rbmq.ensureQueue("q", { vt: 0 })).toBe(true);
+        const id = await env.rbmq.sendMessage("q", "job");
+        expect(await env.rbmq.ensureQueue("q")).toBe(false);
+        expect((await env.rbmq.getQueueAttributes("q")).vt).toBe(0n);
+
+        let finish;
+        const finished = new Promise((resolve) => { finish = resolve; });
+        let started;
+        const claimed = new Promise((resolve) => { started = resolve; });
+        const worker = createWorker({
+            client: env.rbmq,
+            log: SILENT,
+            routes: {
+                q: async () => {
+                    started();
+                    await finished;
+                },
+            },
+        });
+        const ac = new AbortController();
+        const run = worker.runUntil(ac.signal);
+        try {
+            await claimed;
+            expect(await env.rbmq.receiveMessage("q")).toBeNull();
+            await env.rbmq.changeMessageVisibility("q", id, 0);
+            const taken = await env.rbmq.receiveMessage("q", { vt: 30_000 });
+            expect(taken.rc).toBe(2n);
+        } finally {
+            ac.abort();
+            finish();
+            await run;
+        }
+        expect((await env.rbmq.getQueueAttributes("q")).msgs).toBe(1n);
+    });
+
+    it("reports an acknowledgment failure without dead-lettering a successful job", async () => {
+        env = makeClient();
+        await env.rbmq.ensureQueue("q");
+        await env.rbmq.ensureQueue("dead");
+        await env.rbmq.sendMessage("q", "job");
+        const worker = createWorker({
+            client: {
+                ...env.rbmq,
+                async deleteMessage() {
+                    throw new Error("ack unavailable");
+                },
+            },
+            log: SILENT,
+            dlq: { queue: "dead", maxFailures: 0 },
+            routes: { q: async () => {} },
+        });
+        await expect(worker.run()).rejects.toThrow("ack unavailable");
+        expect((await env.rbmq.getQueueAttributes("q")).msgs).toBe(1n);
+        expect((await env.rbmq.getQueueAttributes("dead")).msgs).toBe(0n);
+    });
+
+    it("rejects heartbeat timings that allow the lease to expire", () => {
+        env = makeClient();
+        expect(() => createWorker({
+            client: env.rbmq,
+            heartbeatIntervalMs: 1_000,
+            visibilityExtensionMs: 1_000,
+            routes: { q: async () => {} },
+        })).toThrow(RangeError);
+    });
+
     it("routes by queue name", async () => {
         env = makeClient();
         await env.rbmq.createQueue("a");
