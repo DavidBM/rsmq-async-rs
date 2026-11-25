@@ -22,7 +22,9 @@ fn property_every_send_is_receivable() {
     rt().block_on(async {
         let ctx = TestContext::new();
         let mut q = new_rbmq(&ctx).await;
-        q.create_queue("q", Some(Duration::ZERO), None, Some(-1)).await.unwrap();
+        q.create_queue("q", Some(Duration::ZERO), None, Some(-1))
+            .await
+            .unwrap();
 
         let mut rng = rand::rng();
         let mut sent: HashSet<Vec<u8>> = HashSet::new();
@@ -50,7 +52,9 @@ fn property_msgs_count_equals_sent_minus_deleted_plus_inflight() {
     rt().block_on(async {
         let ctx = TestContext::new();
         let mut q = new_rbmq(&ctx).await;
-        q.create_queue("q", Some(Duration::from_secs(60)), None, None).await.unwrap();
+        q.create_queue("q", Some(Duration::from_secs(60)), None, None)
+            .await
+            .unwrap();
 
         let mut rng = rand::rng();
         let n_sent = rng.random_range(20..50);
@@ -61,11 +65,17 @@ fn property_msgs_count_equals_sent_minus_deleted_plus_inflight() {
         let n_received = rng.random_range(0..n_sent);
         let mut received_ids = Vec::new();
         for _ in 0..n_received {
-            let m = q.receive_message::<String>("q", None).await.unwrap().unwrap();
+            let m = q
+                .receive_message::<String>("q", None)
+                .await
+                .unwrap()
+                .unwrap();
             received_ids.push(m.id);
         }
 
-        let n_deleted = rng.random_range(0..received_ids.len().max(1)).min(received_ids.len());
+        let n_deleted = rng
+            .random_range(0..received_ids.len().max(1))
+            .min(received_ids.len());
         for id in received_ids.iter().take(n_deleted) {
             q.delete_message("q", id).await.unwrap();
         }
@@ -86,7 +96,10 @@ fn property_delete_is_idempotent_after_success() {
         for i in 0..30 {
             q.send_message("q", format!("m{i}"), None).await.unwrap();
         }
-        let received = q.receive_message_batch::<String>("q", None, 30).await.unwrap();
+        let received = q
+            .receive_message_batch::<String>("q", None, 30)
+            .await
+            .unwrap();
         for m in &received {
             assert!(q.delete_message("q", &m.id).await.unwrap());
             for _ in 0..3 {
@@ -102,12 +115,18 @@ fn property_rc_strictly_increases_on_redelivery() {
     rt().block_on(async {
         let ctx = TestContext::new();
         let mut q = new_rbmq(&ctx).await;
-        q.create_queue("q", Some(Duration::ZERO), None, None).await.unwrap();
+        q.create_queue("q", Some(Duration::ZERO), None, None)
+            .await
+            .unwrap();
         let _ = q.send_message("q", "x", None).await.unwrap();
 
         let mut last = 0u64;
         for _ in 0..10 {
-            let m = q.receive_message::<String>("q", None).await.unwrap().unwrap();
+            let m = q
+                .receive_message::<String>("q", None)
+                .await
+                .unwrap()
+                .unwrap();
             assert!(m.rc > last);
             last = m.rc;
         }
@@ -120,13 +139,23 @@ fn property_fr_stays_constant() {
     rt().block_on(async {
         let ctx = TestContext::new();
         let mut q = new_rbmq(&ctx).await;
-        q.create_queue("q", Some(Duration::ZERO), None, None).await.unwrap();
+        q.create_queue("q", Some(Duration::ZERO), None, None)
+            .await
+            .unwrap();
         q.send_message("q", "x", None).await.unwrap();
 
-        let m0 = q.receive_message::<String>("q", None).await.unwrap().unwrap();
+        let m0 = q
+            .receive_message::<String>("q", None)
+            .await
+            .unwrap()
+            .unwrap();
         let fr = m0.fr;
         for _ in 0..10 {
-            let m = q.receive_message::<String>("q", None).await.unwrap().unwrap();
+            let m = q
+                .receive_message::<String>("q", None)
+                .await
+                .unwrap()
+                .unwrap();
             assert_eq!(m.fr, fr);
         }
     });
@@ -144,7 +173,10 @@ fn property_ids_are_valid_lowercase_hex_32_chars() {
             let id = q.send_message("q", "x", None).await.unwrap();
             assert_eq!(id.len(), 32);
             for c in id.chars() {
-                assert!(matches!(c, '0'..='9' | 'a'..='f'), "non-hex char {c} in {id}");
+                assert!(
+                    matches!(c, '0'..='9' | 'a'..='f'),
+                    "non-hex char {c} in {id}"
+                );
             }
         }
     });
@@ -162,7 +194,10 @@ fn property_batch_send_ids_match_input_count() {
         for _ in 0..10 {
             let n = rng.random_range(1..50);
             let payloads: Vec<String> = (0..n).map(|i| format!("m{i}")).collect();
-            let ids = q.send_message_batch("q", payloads.clone(), None).await.unwrap();
+            let ids = q
+                .send_message_batch("q", payloads.clone(), None)
+                .await
+                .unwrap();
             assert_eq!(ids.len(), payloads.len());
             // Drain via pop (deletes as it reads).
             while q.pop_message::<String>("q").await.unwrap().is_some() {}
@@ -230,7 +265,9 @@ fn property_delete_then_create_gives_fresh_state() {
         for cycle in 0..5 {
             q.create_queue("q", None, None, None).await.unwrap();
             for i in 0..10 {
-                q.send_message("q", format!("c{cycle}-{i}"), None).await.unwrap();
+                q.send_message("q", format!("c{cycle}-{i}"), None)
+                    .await
+                    .unwrap();
             }
             let attrs = q.get_queue_attributes("q").await.unwrap();
             assert_eq!(attrs.totalsent, 10);

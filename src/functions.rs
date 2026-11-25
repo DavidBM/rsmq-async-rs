@@ -142,12 +142,7 @@ impl<T: ConnectionLike> RbmqFunctions<T> {
     }
 
     /// Delete a message from the queue.
-    pub async fn delete_message(
-        &self,
-        conn: &mut T,
-        qname: &str,
-        id: &str,
-    ) -> RbmqResult<bool> {
+    pub async fn delete_message(&self, conn: &mut T, qname: &str, id: &str) -> RbmqResult<bool> {
         let result: i64 = DELETE_MESSAGE
             .key(self.zset_key(qname))
             .arg(id)
@@ -296,8 +291,7 @@ impl<T: ConnectionLike> RbmqFunctions<T> {
             return Ok(None);
         }
 
-        let message =
-            E::try_from(RedisBytes(result.2)).map_err(RbmqError::CannotDecodeMessage)?;
+        let message = E::try_from(RedisBytes(result.2)).map_err(RbmqError::CannotDecodeMessage)?;
         Ok(Some(RbmqMessage {
             id: result.1,
             message,
@@ -481,8 +475,7 @@ impl<T: ConnectionLike> RbmqFunctions<T> {
         if !result.0 {
             return Ok(None);
         }
-        let message =
-            E::try_from(RedisBytes(result.2)).map_err(RbmqError::CannotDecodeMessage)?;
+        let message = E::try_from(RedisBytes(result.2)).map_err(RbmqError::CannotDecodeMessage)?;
         Ok(Some(RbmqMessage {
             id: result.1,
             message,

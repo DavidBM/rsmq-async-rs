@@ -92,42 +92,77 @@ async fn handle(req: Request) -> Reply {
     use serde_json::json;
     match req {
         Request::Ping => Reply::Ok(json!({ "ok": true, "pong": true })),
-        Request::CreateQueue { ns, qname, vt_ms, delay_ms, maxsize } => {
+        Request::CreateQueue {
+            ns,
+            qname,
+            vt_ms,
+            delay_ms,
+            maxsize,
+        } => {
             let mut r = match rbmq_for(&ns).await {
                 Ok(r) => r,
-                Err(e) => return Reply::Err { ok: false, error: e },
+                Err(e) => {
+                    return Reply::Err {
+                        ok: false,
+                        error: e,
+                    }
+                }
             };
             let vt = vt_ms.map(std::time::Duration::from_millis);
             let delay = delay_ms.map(std::time::Duration::from_millis);
             match r.create_queue(&qname, vt, delay, maxsize).await {
                 Ok(()) => Reply::Ok(json!({ "ok": true })),
-                Err(e) => Reply::Err { ok: false, error: format!("{e:?}") },
+                Err(e) => Reply::Err {
+                    ok: false,
+                    error: format!("{e:?}"),
+                },
             }
         }
         Request::DeleteQueue { ns, qname } => {
             let mut r = match rbmq_for(&ns).await {
                 Ok(r) => r,
-                Err(e) => return Reply::Err { ok: false, error: e },
+                Err(e) => {
+                    return Reply::Err {
+                        ok: false,
+                        error: e,
+                    }
+                }
             };
             match r.delete_queue(&qname).await {
                 Ok(()) => Reply::Ok(json!({ "ok": true })),
-                Err(e) => Reply::Err { ok: false, error: format!("{e:?}") },
+                Err(e) => Reply::Err {
+                    ok: false,
+                    error: format!("{e:?}"),
+                },
             }
         }
         Request::SendMessage { ns, qname, body } => {
             let mut r = match rbmq_for(&ns).await {
                 Ok(r) => r,
-                Err(e) => return Reply::Err { ok: false, error: e },
+                Err(e) => {
+                    return Reply::Err {
+                        ok: false,
+                        error: e,
+                    }
+                }
             };
             match r.send_message(&qname, body, None).await {
                 Ok(id) => Reply::Ok(json!({ "ok": true, "id": id })),
-                Err(e) => Reply::Err { ok: false, error: format!("{e:?}") },
+                Err(e) => Reply::Err {
+                    ok: false,
+                    error: format!("{e:?}"),
+                },
             }
         }
         Request::ReceiveMessage { ns, qname } => {
             let mut r = match rbmq_for(&ns).await {
                 Ok(r) => r,
-                Err(e) => return Reply::Err { ok: false, error: e },
+                Err(e) => {
+                    return Reply::Err {
+                        ok: false,
+                        error: e,
+                    }
+                }
             };
             match r.receive_message::<String>(&qname, None).await {
                 Ok(Some(m)) => Reply::Ok(json!({
@@ -139,13 +174,21 @@ async fn handle(req: Request) -> Reply {
                     "sent": m.sent.to_string(),
                 })),
                 Ok(None) => Reply::Ok(json!({ "ok": true, "empty": true })),
-                Err(e) => Reply::Err { ok: false, error: format!("{e:?}") },
+                Err(e) => Reply::Err {
+                    ok: false,
+                    error: format!("{e:?}"),
+                },
             }
         }
         Request::PopMessage { ns, qname } => {
             let mut r = match rbmq_for(&ns).await {
                 Ok(r) => r,
-                Err(e) => return Reply::Err { ok: false, error: e },
+                Err(e) => {
+                    return Reply::Err {
+                        ok: false,
+                        error: e,
+                    }
+                }
             };
             match r.pop_message::<String>(&qname).await {
                 Ok(Some(m)) => Reply::Ok(json!({
@@ -157,23 +200,39 @@ async fn handle(req: Request) -> Reply {
                     "sent": m.sent.to_string(),
                 })),
                 Ok(None) => Reply::Ok(json!({ "ok": true, "empty": true })),
-                Err(e) => Reply::Err { ok: false, error: format!("{e:?}") },
+                Err(e) => Reply::Err {
+                    ok: false,
+                    error: format!("{e:?}"),
+                },
             }
         }
         Request::DeleteMessage { ns, qname, id } => {
             let mut r = match rbmq_for(&ns).await {
                 Ok(r) => r,
-                Err(e) => return Reply::Err { ok: false, error: e },
+                Err(e) => {
+                    return Reply::Err {
+                        ok: false,
+                        error: e,
+                    }
+                }
             };
             match r.delete_message(&qname, &id).await {
                 Ok(deleted) => Reply::Ok(json!({ "ok": true, "deleted": deleted })),
-                Err(e) => Reply::Err { ok: false, error: format!("{e:?}") },
+                Err(e) => Reply::Err {
+                    ok: false,
+                    error: format!("{e:?}"),
+                },
             }
         }
         Request::GetQueueAttributes { ns, qname } => {
             let mut r = match rbmq_for(&ns).await {
                 Ok(r) => r,
-                Err(e) => return Reply::Err { ok: false, error: e },
+                Err(e) => {
+                    return Reply::Err {
+                        ok: false,
+                        error: e,
+                    }
+                }
             };
             match r.get_queue_attributes(&qname).await {
                 Ok(a) => Reply::Ok(json!({
@@ -186,17 +245,28 @@ async fn handle(req: Request) -> Reply {
                     "msgs": a.msgs,
                     "hiddenmsgs": a.hiddenmsgs,
                 })),
-                Err(e) => Reply::Err { ok: false, error: format!("{e:?}") },
+                Err(e) => Reply::Err {
+                    ok: false,
+                    error: format!("{e:?}"),
+                },
             }
         }
         Request::MoveMessage { ns, src, dst, id } => {
             let mut r = match rbmq_for(&ns).await {
                 Ok(r) => r,
-                Err(e) => return Reply::Err { ok: false, error: e },
+                Err(e) => {
+                    return Reply::Err {
+                        ok: false,
+                        error: e,
+                    }
+                }
             };
             match r.move_message(&src, &id, &dst).await {
                 Ok(moved) => Reply::Ok(serde_json::json!({ "ok": true, "moved": moved })),
-                Err(e) => Reply::Err { ok: false, error: format!("{e:?}") },
+                Err(e) => Reply::Err {
+                    ok: false,
+                    error: format!("{e:?}"),
+                },
             }
         }
     }
@@ -217,7 +287,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
         let reply = match serde_json::from_str::<Request>(trimmed) {
             Ok(req) => handle(req).await,
-            Err(e) => Reply::Err { ok: false, error: format!("parse: {e}") },
+            Err(e) => Reply::Err {
+                ok: false,
+                error: format!("parse: {e}"),
+            },
         };
         let json = serde_json::to_string(&reply)?;
         writeln!(stdout, "{json}")?;

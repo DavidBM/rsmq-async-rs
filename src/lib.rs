@@ -106,9 +106,9 @@ pub use r#trait::RbmqConnection;
 pub use r#trait::RbmqConnectionSync;
 #[cfg(feature = "sync")]
 pub use sync_facade::RbmqSync;
-pub use types::RedisBytes;
 pub use types::RbmqMessage;
 pub use types::RbmqOptions;
 pub use types::RbmqQueueAttributes;
+pub use types::RedisBytes;
 #[cfg(feature = "worker")]
 pub use worker::{DecodeError, Worker, WorkerBuilder};

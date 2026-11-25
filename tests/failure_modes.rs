@@ -19,7 +19,10 @@ fn send_to_nonexistent_queue_errors() {
     rt().block_on(async {
         let ctx = TestContext::new();
         let mut q = new_rbmq(&ctx).await;
-        assert!(matches!(q.send_message("ghost", "x", None).await, Err(RbmqError::QueueNotFound)));
+        assert!(matches!(
+            q.send_message("ghost", "x", None).await,
+            Err(RbmqError::QueueNotFound)
+        ));
     });
 }
 
@@ -77,7 +80,8 @@ fn change_visibility_for_nonexistent_queue_errors() {
         let ctx = TestContext::new();
         let mut q = new_rbmq(&ctx).await;
         assert!(matches!(
-            q.change_message_visibility("ghost", "id", Duration::from_secs(10)).await,
+            q.change_message_visibility("ghost", "id", Duration::from_secs(10))
+                .await,
             Err(RbmqError::QueueNotFound)
         ));
     });
@@ -102,7 +106,8 @@ fn dlq_routing_with_nonexistent_source_errors() {
         let mut q = new_rbmq(&ctx).await;
         q.create_queue("dlq", None, None, None).await.unwrap();
         assert!(matches!(
-            q.receive_message_or_dlq::<String>("ghost", None, "dlq", 1).await,
+            q.receive_message_or_dlq::<String>("ghost", None, "dlq", 1)
+                .await,
             Err(RbmqError::QueueNotFound)
         ));
     });
@@ -137,7 +142,8 @@ fn set_attributes_on_nonexistent_queue_errors() {
         let ctx = TestContext::new();
         let mut q = new_rbmq(&ctx).await;
         assert!(matches!(
-            q.set_queue_attributes("ghost", Some(Duration::from_secs(60)), None, None).await,
+            q.set_queue_attributes("ghost", Some(Duration::from_secs(60)), None, None)
+                .await,
             Err(RbmqError::QueueNotFound)
         ));
     });
@@ -251,7 +257,11 @@ fn delete_queue_then_send_then_recreate_then_send_works() {
         q.create_queue("q", None, None, None).await.unwrap();
         // Now works again.
         q.send_message("q", "second", None).await.unwrap();
-        let m = q.receive_message::<String>("q", None).await.unwrap().unwrap();
+        let m = q
+            .receive_message::<String>("q", None)
+            .await
+            .unwrap()
+            .unwrap();
         assert_eq!(m.message, "second");
     });
 }
@@ -263,7 +273,11 @@ fn change_visibility_with_excessive_duration_rejected() {
         let mut q = new_rbmq(&ctx).await;
         q.create_queue("q", None, None, None).await.unwrap();
         q.send_message("q", "x", None).await.unwrap();
-        let m = q.receive_message::<String>("q", None).await.unwrap().unwrap();
+        let m = q
+            .receive_message::<String>("q", None)
+            .await
+            .unwrap()
+            .unwrap();
         // 200 years exceeds the 100-year defensive cap.
         let r = q
             .change_message_visibility("q", &m.id, Duration::from_secs(200 * 365 * 24 * 3600))
@@ -279,7 +293,10 @@ fn delete_message_with_invalid_qname_format_in_redis_returns_false() {
     rt().block_on(async {
         let ctx = TestContext::new();
         let mut q = new_rbmq(&ctx).await;
-        let r = q.delete_message("nonexistent", "ffffffffffffffffffffffffffffffff").await.unwrap();
+        let r = q
+            .delete_message("nonexistent", "ffffffffffffffffffffffffffffffff")
+            .await
+            .unwrap();
         assert!(!r);
     });
 }

@@ -6,7 +6,7 @@
 //!
 //!     cargo run --example custom_type
 
-use rbmq::{RedisBytes, Rbmq, RbmqConnection, RbmqError};
+use rbmq::{Rbmq, RbmqConnection, RbmqError, RedisBytes};
 
 #[derive(Debug)]
 struct Job {

@@ -53,8 +53,8 @@ impl RbmqSync {
             conn: PhantomData,
         };
 
-        let connection = runner
-            .block_on(async { client.get_multiplexed_async_connection().await })?;
+        let connection =
+            runner.block_on(async { client.get_multiplexed_async_connection().await })?;
 
         Ok(RbmqSync {
             connection: RedisConnection(connection),
@@ -102,7 +102,9 @@ impl RbmqConnectionSync for RbmqSync {
 
     fn delete_queue(&mut self, qname: &str) -> RbmqResult<()> {
         self.runner.block_on(async {
-            self.functions.delete_queue(&mut self.connection.0, qname).await
+            self.functions
+                .delete_queue(&mut self.connection.0, qname)
+                .await
         })
     }
 
@@ -124,7 +126,9 @@ impl RbmqConnectionSync for RbmqSync {
         qname: &str,
     ) -> RbmqResult<Option<RbmqMessage<E>>> {
         self.runner.block_on(async {
-            self.functions.pop_message::<E>(&mut self.connection.0, qname).await
+            self.functions
+                .pop_message::<E>(&mut self.connection.0, qname)
+                .await
         })
     }
 

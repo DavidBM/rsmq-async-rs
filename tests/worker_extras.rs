@@ -24,9 +24,13 @@ fn worker_drains_many_messages() {
     rt().block_on(async {
         let ctx = TestContext::new();
         let mut rbmq = new_rbmq(&ctx).await;
-        rbmq.create_queue("q", Some(Duration::from_secs(60)), None, None).await.unwrap();
+        rbmq.create_queue("q", Some(Duration::from_secs(60)), None, None)
+            .await
+            .unwrap();
         for i in 0..30 {
-            rbmq.send_message("q", format!("m-{i}"), None).await.unwrap();
+            rbmq.send_message("q", format!("m-{i}"), None)
+                .await
+                .unwrap();
         }
 
         let count = Arc::new(AtomicUsize::new(0));
@@ -69,8 +73,12 @@ fn worker_routes_messages_for_two_queues_concurrently() {
     rt().block_on(async {
         let ctx = TestContext::new();
         let mut rbmq = new_rbmq(&ctx).await;
-        rbmq.create_queue("a", Some(Duration::from_secs(60)), None, None).await.unwrap();
-        rbmq.create_queue("b", Some(Duration::from_secs(60)), None, None).await.unwrap();
+        rbmq.create_queue("a", Some(Duration::from_secs(60)), None, None)
+            .await
+            .unwrap();
+        rbmq.create_queue("b", Some(Duration::from_secs(60)), None, None)
+            .await
+            .unwrap();
 
         for _ in 0..5 {
             rbmq.send_message("a", "from-a", None).await.unwrap();
@@ -108,7 +116,8 @@ fn worker_routes_messages_for_two_queues_concurrently() {
             worker
                 .run_until(async move {
                     loop {
-                        if a_count.load(Ordering::SeqCst) >= 5 && b_count.load(Ordering::SeqCst) >= 5
+                        if a_count.load(Ordering::SeqCst) >= 5
+                            && b_count.load(Ordering::SeqCst) >= 5
                         {
                             return;
                         }
@@ -127,8 +136,12 @@ fn worker_dlq_per_route_with_distinct_dlqs() {
     rt().block_on(async {
         let ctx = TestContext::new();
         let mut rbmq = new_rbmq(&ctx).await;
-        rbmq.create_queue("a", Some(Duration::ZERO), None, None).await.unwrap();
-        rbmq.create_queue("b", Some(Duration::ZERO), None, None).await.unwrap();
+        rbmq.create_queue("a", Some(Duration::ZERO), None, None)
+            .await
+            .unwrap();
+        rbmq.create_queue("b", Some(Duration::ZERO), None, None)
+            .await
+            .unwrap();
         rbmq.create_queue("a_dlq", None, None, None).await.unwrap();
         rbmq.create_queue("b_dlq", None, None, None).await.unwrap();
 
@@ -169,10 +182,18 @@ fn worker_dlq_with_route_specific_overrides_global() {
     rt().block_on(async {
         let ctx = TestContext::new();
         let mut rbmq = new_rbmq(&ctx).await;
-        rbmq.create_queue("a", Some(Duration::ZERO), None, None).await.unwrap();
-        rbmq.create_queue("b", Some(Duration::ZERO), None, None).await.unwrap();
-        rbmq.create_queue("global_dlq", None, None, None).await.unwrap();
-        rbmq.create_queue("a_specific_dlq", None, None, None).await.unwrap();
+        rbmq.create_queue("a", Some(Duration::ZERO), None, None)
+            .await
+            .unwrap();
+        rbmq.create_queue("b", Some(Duration::ZERO), None, None)
+            .await
+            .unwrap();
+        rbmq.create_queue("global_dlq", None, None, None)
+            .await
+            .unwrap();
+        rbmq.create_queue("a_specific_dlq", None, None, None)
+            .await
+            .unwrap();
 
         rbmq.send_message("a", "x", None).await.unwrap();
         rbmq.send_message("b", "y", None).await.unwrap();
@@ -196,7 +217,9 @@ fn worker_dlq_with_route_specific_overrides_global() {
             .await
             .unwrap();
 
-        let _ = worker.run_until(tokio::time::sleep(Duration::from_millis(500))).await;
+        let _ = worker
+            .run_until(tokio::time::sleep(Duration::from_millis(500)))
+            .await;
 
         let a_specific = rbmq.get_queue_attributes("a_specific_dlq").await.unwrap();
         let global = rbmq.get_queue_attributes("global_dlq").await.unwrap();
@@ -214,7 +237,9 @@ fn worker_continues_after_handler_panic_in_separate_run_call() {
     rt().block_on(async {
         let ctx = TestContext::new();
         let mut rbmq = new_rbmq(&ctx).await;
-        rbmq.create_queue("q", Some(Duration::from_millis(100)), None, None).await.unwrap();
+        rbmq.create_queue("q", Some(Duration::from_millis(100)), None, None)
+            .await
+            .unwrap();
         rbmq.send_message("q", "fail-then-ok", None).await.unwrap();
 
         let attempts = Arc::new(AtomicUsize::new(0));
@@ -246,7 +271,9 @@ fn worker_continues_after_handler_panic_in_separate_run_call() {
             .await
             .unwrap();
 
-        let _ = worker.run_until(tokio::time::sleep(Duration::from_millis(800))).await;
+        let _ = worker
+            .run_until(tokio::time::sleep(Duration::from_millis(800)))
+            .await;
         // First attempt failed (and was left for redelivery), second succeeded and deleted.
         assert!(attempts.load(Ordering::SeqCst) >= 2);
         let attrs = rbmq.get_queue_attributes("q").await.unwrap();
@@ -310,7 +337,9 @@ fn worker_error_path_logs_and_redelivers() {
     rt().block_on(async {
         let ctx = TestContext::new();
         let mut rbmq = new_rbmq(&ctx).await;
-        rbmq.create_queue("q", Some(Duration::from_millis(100)), None, None).await.unwrap();
+        rbmq.create_queue("q", Some(Duration::from_millis(100)), None, None)
+            .await
+            .unwrap();
         rbmq.send_message("q", "hi", None).await.unwrap();
 
         let count = Arc::new(AtomicUsize::new(0));
@@ -338,7 +367,9 @@ fn worker_error_path_logs_and_redelivers() {
             .await
             .unwrap();
 
-        let _ = worker.run_until(tokio::time::sleep(Duration::from_millis(500))).await;
+        let _ = worker
+            .run_until(tokio::time::sleep(Duration::from_millis(500)))
+            .await;
         // Without DLQ, message is redelivered repeatedly.
         assert!(count.load(Ordering::SeqCst) >= 2);
     });
@@ -349,9 +380,13 @@ fn worker_decode_error_does_not_call_handler() {
     rt().block_on(async {
         let ctx = TestContext::new();
         let mut rbmq = new_rbmq(&ctx).await;
-        rbmq.create_queue("q", Some(Duration::from_millis(100)), None, None).await.unwrap();
+        rbmq.create_queue("q", Some(Duration::from_millis(100)), None, None)
+            .await
+            .unwrap();
         // Send invalid UTF-8 bytes so String decode fails.
-        rbmq.send_message("q", vec![0xff, 0xfe], None).await.unwrap();
+        rbmq.send_message("q", vec![0xff, 0xfe], None)
+            .await
+            .unwrap();
 
         let calls = Arc::new(AtomicUsize::new(0));
         let c = calls.clone();
@@ -368,7 +403,9 @@ fn worker_decode_error_does_not_call_handler() {
             .await
             .unwrap();
 
-        let _ = worker.run_until(tokio::time::sleep(Duration::from_millis(300))).await;
+        let _ = worker
+            .run_until(tokio::time::sleep(Duration::from_millis(300)))
+            .await;
         // The handler is NEVER called for un-decodable bodies.
         assert_eq!(calls.load(Ordering::SeqCst), 0);
     });
@@ -380,7 +417,9 @@ fn worker_handler_with_vec_u8_decodes_anything() {
         let ctx = TestContext::new();
         let mut rbmq = new_rbmq(&ctx).await;
         rbmq.create_queue("q", None, None, None).await.unwrap();
-        rbmq.send_message("q", vec![0xff, 0x00, 0x42], None).await.unwrap();
+        rbmq.send_message("q", vec![0xff, 0x00, 0x42], None)
+            .await
+            .unwrap();
 
         let got = Arc::new(std::sync::Mutex::new(Vec::<u8>::new()));
         let g = got.clone();
@@ -397,7 +436,9 @@ fn worker_handler_with_vec_u8_decodes_anything() {
             .await
             .unwrap();
 
-        let _ = worker.run_until(tokio::time::sleep(Duration::from_millis(500))).await;
+        let _ = worker
+            .run_until(tokio::time::sleep(Duration::from_millis(500)))
+            .await;
         assert_eq!(*got.lock().unwrap(), vec![0xff, 0x00, 0x42]);
     });
 }
