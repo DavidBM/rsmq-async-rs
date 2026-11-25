@@ -83,6 +83,7 @@
 //!
 //! - `tokio-comp` *(default)* — Tokio runtime support.
 //! - `smol-comp` — smol runtime support. Disable defaults to use it standalone.
+//! - `tokio-tls` / `smol-tls` — verified `rediss://` connections using the OS trust store.
 //! - `sync` *(default)* — enables [`RbmqSync`] and [`RbmqConnectionSync`].
 //! - `serde` *(default)* — enables [`Json<T>`](Json), [`RbmqJsonExt`], and the
 //!   `RbmqError::JsonError` variant. Pulls in `serde` and `serde_json`.

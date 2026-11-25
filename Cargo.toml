@@ -1,11 +1,10 @@
 [package]
 name = "rbmq"
-version = "1.0.0-alpha.1"
+version = "2.0.0"
 authors = ["David Bonet <webbonet@gmail.com>"]
 edition = "2021"
 license = "MIT"
 description = "Redis Better Message Queue. A small, atomic, Redis-backed queue. All semantics live in Lua scripts shared with the Node.js client. Successor to rsmq_async, no JS-rsmq wire compatibility."
-homepage = "https://github.com/DavidBM/rsmq-async-rs"
 repository = "https://github.com/DavidBM/rsmq-async-rs"
 documentation = "https://docs.rs/rbmq/"
 readme = "README.md"
@@ -27,7 +26,6 @@ futures-util = { version = "^0.3", optional = true, default-features = false, fe
 log = { version = "^0.4", optional = true }
 
 [dev-dependencies]
-net2 = "^0.2"
 tokio = { version = "^1", features = ["rt-multi-thread", "macros", "sync", "time"] }
 serde = { version = "^1", features = ["derive"] }
 serde_json = "^1"
@@ -37,6 +35,8 @@ default = ["tokio-comp", "sync", "serde", "worker"]
 sync = ["dep:tokio"]
 tokio-comp = ["redis/tokio-comp"]
 smol-comp = ["redis/smol-comp"]
+tokio-tls = ["tokio-comp", "redis/tokio-native-tls-comp"]
+smol-tls = ["smol-comp", "redis/smol-native-tls-comp"]
 serde = ["dep:serde", "dep:serde_json"]
 # Async worker helper. Tokio-only for now (uses tokio::time and tokio::select!).
 worker = [

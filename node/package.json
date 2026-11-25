@@ -1,6 +1,6 @@
 {
   "name": "@davidbm/rbmq",
-  "version": "1.0.0-alpha.1",
+  "version": "2.0.0",
   "description": "Redis Better Message Queue. A small, atomic Redis-backed queue. All semantics live in Lua scripts shared with the Rust implementation.",
   "type": "module",
   "main": "src/index.js",

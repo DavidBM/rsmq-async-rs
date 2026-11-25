@@ -7,7 +7,7 @@ payload, and run a worker. The worker renews the job's visibility and
 acknowledges it when the handler succeeds. Both clients use the same Lua
 scripts, so Rust producers and Node workers can share queues.
 
-RBMQ is a source-only alpha and the successor to
+RBMQ is the successor to
 [`rsmq_async`](https://crates.io/crates/rsmq_async/18.0.0). Use a fresh namespace
 for RBMQ and drain existing queues with the old client before switching. The
 [`rsmq_async` 18.0.0 source](https://github.com/DavidBM/rsmq-async-rs/tree/8f423e36e81ea13f562213c0eac4817db4ed7c5a)
@@ -15,11 +15,11 @@ uses a different storage format, compatible with the original JS RSMQ.
 
 ## Rust quick start
 
-Clone this repository next to your application and add these dependencies.
+Add these dependencies.
 
 ```toml
 [dependencies]
-rbmq = { path = "../rsmq-async-rs" }
+rbmq = "2"
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "signal"] }
 ```
 
@@ -53,12 +53,12 @@ they can reach the same Redis URL.
 
 ## Node.js quick start
 
-Pack the alpha from this checkout, then install it into your application.
+Pack the Node client from this checkout, then install it into your application.
 
 ```sh
 npm pack --pack-destination /tmp ./node
 # From your application directory
-npm install /tmp/davidbm-rbmq-1.0.0-alpha.1.tgz ioredis
+npm install /tmp/davidbm-rbmq-2.0.0.tgz ioredis
 ```
 
 ```js
@@ -109,6 +109,20 @@ The Rust, Node, and cross-language CI matrix includes Redis 7, Redis 8,
 Valkey 9, and Dragonfly 2.1. The clients declare each key a Lua script accesses,
 so Dragonfly can use its default script checks. No server extension is needed.
 The matrix covers single-primary deployments using TCP.
+
+## Production deployment
+
+- Use `tokio-tls` or `smol-tls` with a `rediss://` URL for encrypted Rust
+  connections. The system trust store verifies the server certificate. With
+  Node, pass the corresponding TLS settings to ioredis.
+- Use a dedicated Redis account. Store connection URLs in secret configuration,
+  and restrict application access to its queue namespace.
+- Choose the backend's persistence and failover settings before enqueueing
+  durable jobs. Queue data uses multiple keys, so use a non-evicting backend
+  sized for pending jobs and payloads.
+- Stop workers gracefully to let handlers finish. Use idempotency keys for
+  external side effects, and monitor queue depth, retries, and dead-letter
+  depth. Plan for redelivery after a process or network failure.
 
 ## Storage layout
 
