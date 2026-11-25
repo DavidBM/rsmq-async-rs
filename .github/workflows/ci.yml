@@ -69,6 +69,14 @@ jobs:
       - name: Build (smol-comp)
         run: cargo build --no-default-features --features smol-comp
 
+  tls:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Verify TLS certificate and hostname checks
+        run: bash tools/test-tls.sh
+
   lint:
     runs-on: ubuntu-latest
     steps:

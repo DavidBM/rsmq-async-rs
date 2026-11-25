@@ -4,12 +4,12 @@
 
 ## Quick start
 
-The alpha is available as source. The npm tarball includes the shared Lua scripts.
+Build the Node.js package from the source checkout. The npm tarball includes the shared Lua scripts.
 
 ```sh
 # Run npm pack from the repository root, then install from your app.
 npm pack --pack-destination /tmp ./node
-npm install /tmp/davidbm-rbmq-1.0.0-alpha.1.tgz ioredis
+npm install /tmp/davidbm-rbmq-2.0.0.tgz ioredis
 ```
 
 ```js

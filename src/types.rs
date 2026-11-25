@@ -1,8 +1,8 @@
 use redis::ProtocolVersion;
-use std::{convert::TryFrom, time::Duration};
+use std::{convert::TryFrom, fmt, time::Duration};
 
 /// Options for creating a new rbmq instance.
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct RbmqOptions {
     /// Redis host
     pub host: String,
@@ -21,6 +21,21 @@ pub struct RbmqOptions {
     pub ns: String,
     /// Redis protocol. Defaults to RESP2
     pub protocol: ProtocolVersion,
+}
+
+impl fmt::Debug for RbmqOptions {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("RbmqOptions")
+            .field("host", &self.host)
+            .field("port", &self.port)
+            .field("db", &self.db)
+            .field("realtime", &self.realtime)
+            .field("username", &self.username)
+            .field("password", &self.password.as_ref().map(|_| "<redacted>"))
+            .field("ns", &self.ns)
+            .field("protocol", &self.protocol)
+            .finish()
+    }
 }
 
 impl RbmqOptions {
@@ -171,5 +186,21 @@ impl From<Vec<u8>> for RedisBytes {
 impl From<&[u8]> for RedisBytes {
     fn from(t: &[u8]) -> RedisBytes {
         RedisBytes(t.into())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::RbmqOptions;
+
+    #[test]
+    fn debug_output_redacts_redis_password() {
+        let options = RbmqOptions {
+            password: Some("example-test-password".into()),
+            ..Default::default()
+        };
+        let debug = format!("{options:?}");
+        assert!(debug.contains("<redacted>"));
+        assert!(!debug.contains("example-test-password"));
     }
 }

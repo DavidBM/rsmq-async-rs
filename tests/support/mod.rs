@@ -22,14 +22,7 @@ impl RedisServer {
             };
         }
         if which_redis_server() {
-            let listener = net2::TcpBuilder::new_v4()
-                .unwrap()
-                .reuse_address(true)
-                .unwrap()
-                .bind("127.0.0.1:0")
-                .unwrap()
-                .listen(1)
-                .unwrap();
+            let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
             let port = listener.local_addr().unwrap().port();
             drop(listener);
             RedisServer::spawn(redis::ConnectionAddr::Tcp("127.0.0.1".to_string(), port))
