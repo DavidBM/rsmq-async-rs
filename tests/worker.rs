@@ -64,6 +64,128 @@ fn processes_message_and_deletes_on_success() {
 }
 
 #[test]
+fn url_workflow_ensures_queue_and_acknowledges_jobs() {
+    rt().block_on(async {
+        let ctx = TestContext::new();
+        let options = ctx.worker_options();
+        let url = format!("redis://{}:{}", options.host, options.port);
+        let mut rbmq = Rbmq::connect(&url).await.unwrap();
+        let queue = format!("{}_jobs", ctx.ns);
+        assert!(rbmq.ensure_queue(&queue).await.unwrap());
+        rbmq.set_queue_attributes(&queue, None, None, Some(2_048))
+            .await
+            .unwrap();
+        rbmq.send_message(&queue, "work", None).await.unwrap();
+        assert!(!rbmq.ensure_queue(&queue).await.unwrap());
+        let attrs = rbmq.get_queue_attributes(&queue).await.unwrap();
+        assert_eq!(attrs.maxsize, 2_048);
+        assert_eq!(attrs.msgs, 1);
+
+        let handled = Arc::new(tokio::sync::Notify::new());
+        let worker = Worker::from_url(&url)
+            .route(queue.clone(), {
+                let handled = handled.clone();
+                move |msg: RbmqMessage<String>| {
+                    assert_eq!(msg.message, "work");
+                    handled.notify_one();
+                    async { Ok::<(), Infallible>(()) }
+                }
+            })
+            .build()
+            .await
+            .unwrap();
+        tokio::time::timeout(
+            Duration::from_secs(5),
+            worker.run_until(async { handled.notified().await }),
+        )
+        .await
+        .expect("the worker must process and acknowledge the job")
+        .unwrap();
+        assert_eq!(rbmq.get_queue_attributes(&queue).await.unwrap().msgs, 0);
+        rbmq.delete_queue(&queue).await.unwrap();
+    });
+}
+
+#[test]
+fn stale_worker_ack_preserves_a_newer_delivery() {
+    rt().block_on(async {
+        let ctx = TestContext::new();
+        let mut rbmq = new_rbmq(&ctx).await;
+        rbmq.create_queue("q", Some(Duration::ZERO), None, None)
+            .await
+            .unwrap();
+        let id = rbmq.send_message("q", "job", None).await.unwrap();
+        let started = Arc::new(tokio::sync::Notify::new());
+        let finish = Arc::new(tokio::sync::Notify::new());
+        let worker = Worker::builder(ctx.worker_options())
+            .route("q", {
+                let (started, finish) = (started.clone(), finish.clone());
+                move |_: RbmqMessage<String>| {
+                    let finish = finish.clone();
+                    started.notify_one();
+                    async move {
+                        finish.notified().await;
+                        Ok::<(), Infallible>(())
+                    }
+                }
+            })
+            .build()
+            .await
+            .unwrap();
+
+        let shutdown = Arc::new(tokio::sync::Notify::new());
+        let run = tokio::spawn(worker.run_until({
+            let shutdown = shutdown.clone();
+            async move { shutdown.notified().await }
+        }));
+        tokio::time::timeout(Duration::from_secs(5), started.notified())
+            .await
+            .unwrap();
+        // The initial worker claim must hide the job even when the queue default is zero.
+        assert!(rbmq
+            .receive_message::<String>("q", None)
+            .await
+            .unwrap()
+            .is_none());
+
+        // Simulate an expired lease and a different consumer taking the next attempt.
+        rbmq.change_message_visibility("q", &id, Duration::ZERO)
+            .await
+            .unwrap();
+        let taken = rbmq
+            .receive_message::<String>("q", Some(Duration::from_secs(30)))
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(taken.rc, 2);
+        shutdown.notify_one();
+        finish.notify_one();
+        tokio::time::timeout(Duration::from_secs(5), run)
+            .await
+            .unwrap()
+            .unwrap()
+            .unwrap();
+        assert_eq!(rbmq.get_queue_attributes("q").await.unwrap().msgs, 1);
+        assert!(rbmq.delete_message("q", &id).await.unwrap());
+    });
+}
+
+#[test]
+fn rejects_heartbeat_intervals_that_allow_the_lease_to_expire() {
+    rt().block_on(async {
+        let result = Worker::builder(Default::default())
+            .route("q", |_: RbmqMessage<String>| async {
+                Ok::<(), Infallible>(())
+            })
+            .heartbeat_interval(Duration::from_secs(2))
+            .visibility_extension(Duration::from_secs(2))
+            .build()
+            .await;
+        assert!(matches!(result, Err(RbmqError::InvalidFormat(_))));
+    });
+}
+
+#[test]
 fn handler_error_leaves_message_in_queue() {
     rt().block_on(async {
         let ctx = TestContext::new();
@@ -305,11 +427,6 @@ fn dlq_max_failures_one_keeps_message_until_second_failure() {
 
         let worker = Worker::builder(ctx.worker_options())
             .poll_interval(Duration::from_millis(50))
-            // We want to exercise the DLQ path on rc=2, but the worker's heartbeat would keep
-            // extending vt and prevent redelivery. Set a heartbeat much longer than the test
-            // so it never fires, and a tiny visibility_extension just in case it does.
-            .heartbeat_interval(Duration::from_secs(10))
-            .visibility_extension(Duration::from_millis(50))
             .dlq("dead", 1)
             .route("work", |_msg: RbmqMessage<String>| async {
                 Err::<(), HandlerErr>(HandlerErr)

@@ -4,7 +4,6 @@ use crate::{
     RbmqError, RbmqResult,
 };
 use core::convert::TryFrom;
-use rand::RngExt;
 use redis::aio::ConnectionLike;
 use redis::Script;
 use std::convert::TryInto;
@@ -40,6 +39,19 @@ script!(RECEIVE_MESSAGE_BATCH, "receiveMessageBatch.lua");
 script!(RECEIVE_MESSAGE_OR_DLQ, "receiveMessageOrDlq.lua");
 script!(MOVE_MESSAGE, "moveMessage.lua");
 
+fn duration_argument(duration: Option<Duration>) -> RbmqResult<i64> {
+    match duration {
+        Some(duration) => Ok(duration_milliseconds(duration)? as i64),
+        None => Ok(-1),
+    }
+}
+
+pub(crate) fn duration_milliseconds(duration: Duration) -> RbmqResult<u64> {
+    let millis = u64::try_from(duration.as_millis()).unwrap_or(u64::MAX);
+    number_in_range(millis, 0, MAX_DURATION_MS)?;
+    Ok(millis)
+}
+
 /// Translate Lua `error_reply("X")` results back into the corresponding `RbmqError`.
 /// Redis adds an "ERR" prefix to error_reply strings that contain no space, so the
 /// known marker ends up in `detail()` rather than `code()`.
@@ -74,6 +86,9 @@ impl<T: ConnectionLike> RbmqFunctions<T> {
     fn zset_key(&self, q: &str) -> String {
         format!("{}:{}", self.ns, q)
     }
+    fn message_key(&self, q: &str) -> String {
+        format!("{}:{}:msg", self.ns, q)
+    }
     fn rt_channel(&self, q: &str) -> String {
         format!("{}:rt:{}", self.ns, q)
     }
@@ -89,17 +104,31 @@ impl<T: ConnectionLike> RbmqFunctions<T> {
         message_id: &str,
         hidden: Duration,
     ) -> RbmqResult<()> {
-        let hidden_ms = duration_ms(Some(hidden), &Duration::from_secs(30));
-        number_in_range(hidden_ms, 0, MAX_DURATION_MS)?;
+        self.update_visibility(conn, qname, message_id, Some(hidden), None)
+            .await?;
+        Ok(())
+    }
 
-        let _: i64 = CHANGE_MESSAGE_VISIBILITY
+    pub async fn update_visibility(
+        &self,
+        conn: &mut T,
+        qname: &str,
+        message_id: &str,
+        hidden: Option<Duration>,
+        receive_count: Option<u64>,
+    ) -> RbmqResult<bool> {
+        let hidden_ms = duration_argument(hidden)?;
+        let updated: i64 = CHANGE_MESSAGE_VISIBILITY
             .key(self.zset_key(qname))
+            .key(self.cfg_key(qname))
+            .key(self.message_key(qname))
             .arg(message_id)
-            .arg(hidden_ms.to_string())
+            .arg(hidden_ms)
+            .arg(receive_count)
             .invoke_async(conn)
             .await
             .map_err(map_script_error)?;
-        Ok(())
+        Ok(updated == 1)
     }
 
     /// Create a new queue.
@@ -142,10 +171,18 @@ impl<T: ConnectionLike> RbmqFunctions<T> {
     }
 
     /// Delete a message from the queue.
-    pub async fn delete_message(&self, conn: &mut T, qname: &str, id: &str) -> RbmqResult<bool> {
+    pub async fn delete_message(
+        &self,
+        conn: &mut T,
+        qname: &str,
+        id: &str,
+        receive_count: Option<u64>,
+    ) -> RbmqResult<bool> {
         let result: i64 = DELETE_MESSAGE
             .key(self.zset_key(qname))
+            .key(self.message_key(qname))
             .arg(id)
+            .arg(receive_count)
             .invoke_async(conn)
             .await
             .map_err(map_script_error)?;
@@ -157,6 +194,8 @@ impl<T: ConnectionLike> RbmqFunctions<T> {
         let result: i64 = DELETE_QUEUE
             .key(self.zset_key(qname))
             .key(self.queues_key())
+            .key(self.cfg_key(qname))
+            .key(self.message_key(qname))
             .arg(qname)
             .invoke_async(conn)
             .await
@@ -243,7 +282,7 @@ impl<T: ConnectionLike> RbmqFunctions<T> {
         conn: &mut T,
         qname: &str,
     ) -> RbmqResult<Option<RbmqMessage<E>>> {
-        self.receive_inner(conn, qname, None, true).await
+        self.receive_inner(conn, qname, None, true, None).await
     }
 
     /// Receive a message and reserve it for `hidden` time (or queue default).
@@ -253,14 +292,18 @@ impl<T: ConnectionLike> RbmqFunctions<T> {
         qname: &str,
         hidden: Option<Duration>,
     ) -> RbmqResult<Option<RbmqMessage<E>>> {
-        if let Some(h) = hidden {
-            number_in_range(
-                u64::try_from(h.as_millis()).unwrap_or(u64::MAX),
-                0,
-                MAX_DURATION_MS,
-            )?;
-        }
-        self.receive_inner(conn, qname, hidden, false).await
+        self.receive_inner(conn, qname, hidden, false, None).await
+    }
+
+    #[cfg(feature = "worker")]
+    pub async fn receive_for_worker(
+        &self,
+        conn: &mut T,
+        qname: &str,
+        lease: Duration,
+    ) -> RbmqResult<Option<RbmqMessage<Vec<u8>>>> {
+        self.receive_inner(conn, qname, None, false, Some(lease))
+            .await
     }
 
     async fn receive_inner<E: TryFrom<RedisBytes, Error = Vec<u8>>>(
@@ -269,20 +312,17 @@ impl<T: ConnectionLike> RbmqFunctions<T> {
         qname: &str,
         hidden: Option<Duration>,
         should_delete: bool,
+        minimum_visibility: Option<Duration>,
     ) -> RbmqResult<Option<RbmqMessage<E>>> {
-        let hidden_arg = match hidden {
-            Some(h) => u64::try_from(h.as_millis())
-                .map_err(|_| {
-                    RbmqError::InvalidValue("hidden".into(), "0".into(), "u64::MAX".into())
-                })?
-                .to_string(),
-            None => USE_DEFAULT.to_string(),
-        };
-
+        let hidden_arg = duration_argument(hidden)?;
+        let minimum_arg = minimum_visibility.map(duration_milliseconds).transpose()?;
         let result: (bool, String, Vec<u8>, u64, u64, u64) = RECEIVE_MESSAGE
             .key(self.zset_key(qname))
+            .key(self.cfg_key(qname))
+            .key(self.message_key(qname))
             .arg(hidden_arg)
             .arg(if should_delete { "true" } else { "false" })
+            .arg(minimum_arg)
             .invoke_async(conn)
             .await
             .map_err(map_script_error)?;
@@ -327,20 +367,20 @@ impl<T: ConnectionLike> RbmqFunctions<T> {
             None => USE_DEFAULT.to_string(),
         };
 
-        let id = Self::make_id()?;
         let realtime_flag = if self.realtime { "1" } else { "0" };
 
-        let _: String = SEND_MESSAGE
+        SEND_MESSAGE
             .key(self.zset_key(qname))
             .key(self.rt_channel(qname))
-            .arg(&id)
+            .key(self.cfg_key(qname))
+            .key(self.message_key(qname))
+            .arg(Self::id_suffix())
             .arg(delay_arg)
             .arg(realtime_flag)
             .arg(body.0)
             .invoke_async(conn)
             .await
-            .map_err(map_script_error)?;
-        Ok(id)
+            .map_err(map_script_error)
     }
 
     /// Atomically inserts a batch of messages into the queue.
@@ -368,29 +408,22 @@ impl<T: ConnectionLike> RbmqFunctions<T> {
 
         let realtime_flag = if self.realtime { "1" } else { "0" };
 
-        let mut ids: Vec<String> = Vec::with_capacity(messages.len());
-        let mut bodies: Vec<Vec<u8>> = Vec::with_capacity(messages.len());
-        for m in messages {
-            let body: RedisBytes = m.into();
-            ids.push(Self::make_id()?);
-            bodies.push(body.0);
-        }
-
         let mut invocation = SEND_MESSAGE_BATCH.prepare_invoke();
         invocation
             .key(self.zset_key(qname))
             .key(self.rt_channel(qname))
+            .key(self.cfg_key(qname))
+            .key(self.message_key(qname))
             .arg(delay_arg)
             .arg(realtime_flag);
-        for (id, body) in ids.iter().zip(bodies) {
-            invocation.arg(id).arg(body);
+        for message in messages {
+            let body: RedisBytes = message.into();
+            invocation.arg(Self::id_suffix()).arg(body.0);
         }
-
-        let _: i64 = invocation
+        invocation
             .invoke_async(conn)
             .await
-            .map_err(map_script_error)?;
-        Ok(ids)
+            .map_err(map_script_error)
     }
 
     /// Atomically receives up to `max_count` visible messages.
@@ -416,6 +449,8 @@ impl<T: ConnectionLike> RbmqFunctions<T> {
 
         let raw: Vec<(String, Vec<u8>, u64, u64, u64)> = RECEIVE_MESSAGE_BATCH
             .key(self.zset_key(qname))
+            .key(self.cfg_key(qname))
+            .key(self.message_key(qname))
             .arg(hidden_arg)
             .arg("false")
             .arg(max_count)
@@ -466,6 +501,10 @@ impl<T: ConnectionLike> RbmqFunctions<T> {
         let result: (bool, String, Vec<u8>, u64, u64, u64) = RECEIVE_MESSAGE_OR_DLQ
             .key(self.zset_key(qname))
             .key(self.zset_key(dlq))
+            .key(self.cfg_key(qname))
+            .key(self.message_key(qname))
+            .key(self.cfg_key(dlq))
+            .key(self.message_key(dlq))
             .arg(hidden_arg)
             .arg(max_receives.to_string())
             .invoke_async(conn)
@@ -492,6 +531,7 @@ impl<T: ConnectionLike> RbmqFunctions<T> {
         src: &str,
         msg_id: &str,
         dst: &str,
+        receive_count: Option<u64>,
     ) -> RbmqResult<bool> {
         valid_name_format(src)?;
         valid_name_format(dst)?;
@@ -504,7 +544,11 @@ impl<T: ConnectionLike> RbmqFunctions<T> {
         let moved: i64 = MOVE_MESSAGE
             .key(self.zset_key(src))
             .key(self.zset_key(dst))
+            .key(self.message_key(src))
+            .key(self.cfg_key(dst))
+            .key(self.message_key(dst))
             .arg(msg_id)
+            .arg(receive_count)
             .invoke_async(conn)
             .await
             .map_err(map_script_error)?;
@@ -563,18 +607,8 @@ impl<T: ConnectionLike> RbmqFunctions<T> {
         self.get_queue_attributes(conn, qname).await
     }
 
-    /// Mints a 32-char lowercase-hex ID (16 random bytes). Globally unique with overwhelming
-    /// probability; ordering is *not* time-based — the queue's sorted set provides ordering
-    /// via score.
-    fn make_id() -> RbmqResult<String> {
-        let mut bytes = [0u8; 16];
-        rand::rng().fill(&mut bytes);
-        let mut id = String::with_capacity(32);
-        for b in &bytes {
-            use std::fmt::Write as _;
-            write!(&mut id, "{:02x}", b).map_err(|_| RbmqError::BugCreatingRandomValue)?;
-        }
-        Ok(id)
+    fn id_suffix() -> String {
+        format!("{:016x}", rand::random::<u64>())
     }
 }
 

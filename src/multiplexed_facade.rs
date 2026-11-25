@@ -24,23 +24,23 @@ pub struct Rbmq {
 impl Rbmq {
     /// Creates a new rbmq instance, including its connection.
     pub async fn new(options: RbmqOptions) -> RbmqResult<Rbmq> {
-        let mut redis_info = redis::RedisConnectionInfo::default()
-            .set_db(options.db.into())
-            .set_protocol(options.protocol);
-        if let Some(username) = options.username {
-            redis_info = redis_info.set_username(username);
-        }
-        if let Some(password) = options.password {
-            redis_info = redis_info.set_password(password);
-        }
-        let conn_info = format!("redis://{}:{}", options.host, options.port)
-            .parse::<redis::ConnectionInfo>()?
-            .set_redis_settings(redis_info);
+        Self::from_client(&options.redis_client()?, options.realtime, &options.ns).await
+    }
 
-        let client = redis::Client::open(conn_info)?;
+    /// Connect using a Redis URL in the default `rbmq` namespace.
+    ///
+    /// The URL may include authentication, a port, and a database number.
+    pub async fn connect(url: &str) -> RbmqResult<Self> {
+        Self::from_client(&redis::Client::open(url)?, false, "rbmq").await
+    }
+
+    pub(crate) async fn from_client(
+        client: &redis::Client,
+        realtime: bool,
+        ns: &str,
+    ) -> RbmqResult<Self> {
         let connection = client.get_multiplexed_async_connection().await?;
-
-        Rbmq::new_with_connection(connection, options.realtime, Some(&options.ns)).await
+        Self::new_with_connection(connection, realtime, Some(ns)).await
     }
 
     /// For when you already have a redis-rs multiplexed connection and don't want a new one.
@@ -58,6 +58,67 @@ impl Rbmq {
             connection: RedisConnection(connection),
             functions,
         })
+    }
+
+    #[cfg(feature = "worker")]
+    pub(crate) async fn receive_for_worker(
+        &mut self,
+        qname: &str,
+        lease: Duration,
+    ) -> RbmqResult<Option<RbmqMessage<Vec<u8>>>> {
+        self.functions
+            .receive_for_worker(&mut self.connection.0, qname, lease)
+            .await
+    }
+
+    #[cfg(feature = "worker")]
+    pub(crate) async fn update_lease(
+        &mut self,
+        qname: &str,
+        id: &str,
+        receive_count: u64,
+        hidden: Option<Duration>,
+    ) -> RbmqResult<bool> {
+        self.functions
+            .update_visibility(
+                &mut self.connection.0,
+                qname,
+                id,
+                hidden,
+                Some(receive_count),
+            )
+            .await
+    }
+
+    #[cfg(feature = "worker")]
+    pub(crate) async fn acknowledge(
+        &mut self,
+        qname: &str,
+        id: &str,
+        receive_count: u64,
+    ) -> RbmqResult<bool> {
+        self.functions
+            .delete_message(&mut self.connection.0, qname, id, Some(receive_count))
+            .await
+    }
+
+    #[cfg(feature = "worker")]
+    pub(crate) async fn dead_letter(
+        &mut self,
+        qname: &str,
+        id: &str,
+        receive_count: u64,
+        target: &str,
+    ) -> RbmqResult<bool> {
+        self.functions
+            .move_message(
+                &mut self.connection.0,
+                qname,
+                id,
+                target,
+                Some(receive_count),
+            )
+            .await
     }
 }
 
@@ -87,7 +148,7 @@ impl RbmqConnection for Rbmq {
 
     async fn delete_message(&mut self, qname: &str, id: &str) -> RbmqResult<bool> {
         self.functions
-            .delete_message(&mut self.connection.0, qname, id)
+            .delete_message(&mut self.connection.0, qname, id, None)
             .await
     }
 
@@ -173,7 +234,7 @@ impl RbmqConnection for Rbmq {
 
     async fn move_message(&mut self, src: &str, msg_id: &str, dst: &str) -> RbmqResult<bool> {
         self.functions
-            .move_message(&mut self.connection.0, src, msg_id, dst)
+            .move_message(&mut self.connection.0, src, msg_id, dst, None)
             .await
     }
 

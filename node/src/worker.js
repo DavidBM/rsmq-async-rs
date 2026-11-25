@@ -8,7 +8,7 @@
 //   - The Redis instance is dependency-injected via opts.redis or via a
 //     pre-built rbmq client passed in opts.client. We never open or close it.
 
-import { createClient } from "./client.js";
+import { createClient, MAX_DURATION_MS } from "./client.js";
 
 /**
  * @typedef {Object} WorkerDlq
@@ -51,16 +51,22 @@ export function createWorker(opts) {
         throw new TypeError("createWorker requires either `redis` or `client`");
     }
 
-    const routes = { ...opts.routes };
+    const routes = Object.entries(opts.routes);
     const pollIntervalMs = opts.pollIntervalMs ?? 1000;
     const heartbeatIntervalMs = opts.heartbeatIntervalMs ?? 10_000;
     const visibilityExtensionMs = opts.visibilityExtensionMs ?? 30_000;
+    if (!Number.isInteger(heartbeatIntervalMs) || heartbeatIntervalMs < 1
+        || heartbeatIntervalMs > 2_147_483_647
+        || !Number.isInteger(visibilityExtensionMs) || visibilityExtensionMs > MAX_DURATION_MS
+        || visibilityExtensionMs <= heartbeatIntervalMs) {
+        throw new RangeError("heartbeat interval must be at least 1ms and shorter than visibility extension");
+    }
     const dlq = opts.dlq;
     const routeDlqs = opts.routeDlqs || {};
     const log = opts.log || console;
 
     // Reject self-loops up front (route X with DLQ X).
-    for (const route of Object.keys(routes)) {
+    for (const [route] of routes) {
         const target = routeDlqs[route] || dlq;
         if (target && target.queue === route) {
             throw new Error(`DLQ for route ${JSON.stringify(route)} is the same queue (would loop)`);
@@ -73,10 +79,12 @@ export function createWorker(opts) {
 
     let running = false;
 
+    const claim = { minimumVisibilityMs: visibilityExtensionMs };
+
     async function pollOnce() {
         let didWork = false;
-        for (const [qname, handler] of Object.entries(routes)) {
-            const msg = await client.receiveMessage(qname);
+        for (const [qname, handler] of routes) {
+            const msg = await client.receiveMessage(qname, claim);
             if (!msg) continue;
             didWork = true;
             await dispatch(qname, handler, msg);
@@ -85,44 +93,61 @@ export function createWorker(opts) {
     }
 
     async function dispatch(qname, handler, msg) {
+        const id = msg.id;
+        const receipt = { receiveCount: msg.rc };
+        let heartbeatRequest;
         const heartbeat = setInterval(() => {
-            client
-                .changeMessageVisibility(qname, msg.id, visibilityExtensionMs)
-                .catch((e) => {
-                    if (log.warn) log.warn(`rbmq worker: heartbeat failed for ${qname}/${msg.id}: ${e.message}`);
+            if (heartbeatRequest) return;
+            heartbeatRequest = client
+                .changeMessageVisibility(qname, id, visibilityExtensionMs, receipt)
+                .then((renewed) => {
+                    if (renewed === false) clearInterval(heartbeat);
+                })
+                .catch((error) => {
+                    log.warn?.(`rbmq worker: heartbeat failed for ${qname}/${id}: ${error.message}`);
+                })
+                .finally(() => {
+                    heartbeatRequest = undefined;
                 });
         }, heartbeatIntervalMs);
 
         try {
             try {
                 await handler(msg);
+            } finally {
                 clearInterval(heartbeat);
-                await client.deleteMessage(qname, msg.id);
-            } catch (err) {
-                clearInterval(heartbeat);
-                const target = dlqFor(qname);
-                if (target && msg.rc > BigInt(target.maxFailures)) {
-                    try {
-                        const moved = await client.moveMessage(qname, msg.id, target.queue);
-                        if (moved && log.warn) {
-                            log.warn(
-                                `rbmq worker: routed ${qname}/${msg.id} to DLQ ${target.queue} after ${msg.rc} failure(s): ${err && err.message}`,
-                            );
-                        }
-                    } catch (moveErr) {
-                        if (log.error) log.error(
-                            `rbmq worker: failed to move ${qname}/${msg.id} to DLQ ${target.queue}: ${moveErr.message} (handler error: ${err && err.message})`,
-                        );
-                    }
-                } else {
-                    if (log.warn) log.warn(
-                        `rbmq worker: handler failed for ${qname}/${msg.id} (rc=${msg.rc}): ${err && err.message} (will redeliver)`,
-                    );
-                    // Leave the message hidden; it'll be redelivered after vt.
-                }
+                await heartbeatRequest;
             }
-        } finally {
-            clearInterval(heartbeat);
+        } catch (error) {
+            await retryOrDeadLetter(qname, id, receipt, error);
+            return;
+        }
+        await client.deleteMessage(qname, id, receipt);
+    }
+
+    async function retryOrDeadLetter(qname, id, receipt, error) {
+        const target = dlqFor(qname);
+        if (target && receipt.receiveCount > BigInt(target.maxFailures)) {
+            try {
+                if (await client.moveMessage(qname, id, target.queue, receipt)) {
+                    log.warn?.(
+                        `rbmq worker: routed ${qname}/${id} to DLQ ${target.queue} after ${receipt.receiveCount} failure(s): ${error}`,
+                    );
+                }
+                return;
+            } catch (moveError) {
+                log.error?.(
+                    `rbmq worker: failed to move ${qname}/${id} to DLQ ${target.queue}: ${moveError.message} (handler error: ${error})`,
+                );
+            }
+        } else {
+            log.warn?.(`rbmq worker: handler failed for ${qname}/${id} (rc=${receipt.receiveCount}): ${error}`);
+        }
+
+        try {
+            await client.changeMessageVisibility(qname, id, null, receipt);
+        } catch (retryError) {
+            log.warn?.(`rbmq worker: could not schedule retry for ${qname}/${id}: ${retryError.message}`);
         }
     }
 

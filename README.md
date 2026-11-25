@@ -1,118 +1,114 @@
-# rbmq — Redis Better Message Queue
+# RBMQ
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 
-**A small, atomic, Redis-backed message queue. The same Lua scripts power the Rust crate and the Node.js package — a Rust producer and a Node consumer share queues with no translation layer.**
+A Redis-backed job queue for Rust and Node.js. Give a queue a name, send a
+payload, and run a worker. The worker renews the job's visibility and
+acknowledges it when the handler succeeds. Both clients use the same Lua
+scripts, so Rust producers and Node workers can share queues.
 
-> Successor to [`rsmq_async`](https://crates.io/crates/rsmq_async). **v1 is a clean break — not wire-compatible** with the original [`smrchy/rsmq`](https://github.com/smrchy/rsmq) Node package or with `rsmq_async` v17/v18. If you need that compatibility, stay on `rsmq_async`.
+RBMQ is a source-only alpha and the successor to
+[`rsmq_async`](https://crates.io/crates/rsmq_async/18.0.0). Use a fresh namespace
+for RBMQ and drain existing queues with the old client before switching. The
+[`rsmq_async` 18.0.0 source](https://github.com/DavidBM/rsmq-async-rs/tree/8f423e36e81ea13f562213c0eac4817db4ed7c5a)
+uses a different storage format, compatible with the original JS RSMQ.
 
-`rbmq` is a source-only alpha. For the published Rust client, install
-[`rsmq_async` 18.x](https://crates.io/crates/rsmq_async/18.0.0). Its published
-source corresponds to [commit `8f423e3`](https://github.com/DavidBM/rsmq-async-rs/tree/8f423e36e81ea13f562213c0eac4817db4ed7c5a).
+## Rust quick start
 
-## What's in here
-
-```
-scripts/    Lua scripts — the source of truth for queue semantics
-src/        Rust crate (rbmq)
-node/       Node.js package (@davidbm/rbmq, ioredis-based)
-examples/   Rust examples (worker, retry, JSON, custom types, interop helper)
-tests/      Rust integration tests (~206)
-node/test/  Node integration tests (~95, including 20 cross-language)
-```
-
-## Quick start
-
-### Rust
+Clone this repository next to your application and add these dependencies.
 
 ```toml
 [dependencies]
 rbmq = { path = "../rsmq-async-rs" }
-tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "signal"] }
 ```
 
 ```rust
-use rbmq::{Rbmq, RbmqConnection, RbmqError};
+use rbmq::{Rbmq, RbmqConnection, RbmqMessage, Worker};
+use std::convert::Infallible;
 
 #[tokio::main]
-async fn main() -> Result<(), RbmqError> {
-    let mut rbmq = Rbmq::new(Default::default()).await?;
-    rbmq.create_queue("jobs", None, None, None).await?;
-    rbmq.send_message("jobs", "hello from Rust", None).await?;
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let url = std::env::var("REDIS_URL").unwrap_or_else(|_| "redis://127.0.0.1/".into());
+    let mut queue = Rbmq::connect(&url).await?;
+    queue.ensure_queue("jobs").await?;
+    queue.send_message("jobs", "generate-report", None).await?;
 
-    if let Some(msg) = rbmq.receive_message::<String>("jobs", None).await? {
-        println!("got: {}", msg.message);
-        rbmq.delete_message("jobs", &msg.id).await?;
-    }
+    Worker::from_url(&url)
+        .route("jobs", |job: RbmqMessage<String>| async move {
+            println!("Processing {}", job.message);
+            Ok::<(), Infallible>(())
+        })
+        .build()
+        .await?
+        .run_until(async { let _ = tokio::signal::ctrl_c().await; })
+        .await?;
     Ok(())
 }
 ```
 
-### Node.js
+`ensure_queue` is safe to run on every startup. Existing queues retain their
+settings and pending jobs. In production, run the producer and worker wherever
+they can reach the same Redis URL.
+
+## Node.js quick start
+
+Pack the alpha from this checkout, then install it into your application.
 
 ```sh
 npm pack --pack-destination /tmp ./node
-# Run from your application directory
+# From your application directory
 npm install /tmp/davidbm-rbmq-1.0.0-alpha.1.tgz ioredis
 ```
 
 ```js
 import Redis from "ioredis";
-import { createClient } from "@davidbm/rbmq";
+import { createClient, createWorker } from "@davidbm/rbmq";
 
-const redis = new Redis();
-const rbmq = createClient(redis);
+const redis = new Redis(process.env.REDIS_URL ?? "redis://127.0.0.1/");
+const queue = createClient(redis);
+await queue.ensureQueue("jobs");
+await queue.sendMessage("jobs", "generate-report");
 
-await rbmq.createQueue("jobs");
-await rbmq.sendMessage("jobs", "hello from Node");
+const worker = createWorker({
+    client: queue,
+    routes: {
+        jobs: async (job) => console.log("Processing", job.message.toString()),
+    },
+});
 
-const msg = await rbmq.receiveMessage("jobs");
-if (msg) {
-    console.log(msg.message.toString());
-    await rbmq.deleteMessage("jobs", msg.id);
+const shutdown = new AbortController();
+process.once("SIGINT", () => shutdown.abort());
+try {
+    await worker.runUntil(shutdown.signal);
+} finally {
+    await redis.quit();
 }
 ```
 
-Use a fresh namespace when testing the alpha next to an existing `rsmq_async`
-deployment. The clients use different Redis key layouts. Drain existing queues
-with the old client before switching their producers and workers to `rbmq`.
+## Delivery and throughput
 
-## Design (the why)
+- Workers reserve a job before calling the handler. A default 30-second processing
+  lease is renewed every 10 seconds. Acknowledgment, renewal, and dead-letter
+  moves are conditional on the attempt still owning the delivery.
+- A handler failure uses the queue's visibility timeout as its retry delay.
+  Configure a dead-letter queue when failed jobs should stop retrying.
+- Delivery is at least once. Make handlers idempotent when they perform external
+  side effects.
+- With the Lua scripts cached, a send, receive, or acknowledgment each takes one
+  round trip. Batches amortize round trips across jobs. New jobs with the same
+  visibility timestamp retain enqueue order. Optional pub/sub can
+  wake Rust workers earlier than their polling interval.
+- Use the low-level client for direct polling, custom message types, bulk
+  operations, or pop-and-delete. See the [Rust examples](examples/) and
+  [Node API](node/README.md).
 
-This is a Redis client that gives you queue semantics without a second broker. The atomicity guarantees you'd normally have to engineer around — two workers can't claim the same message; a `move_message` can't half-apply; a batch send is all-or-nothing — are enforced by Redis itself, because every multi-key operation is one Lua script.
+## Backend compatibility
 
-Architectural choices in v1:
-
-- **One round trip per call.** Every public method dispatches to a single Lua script. The script reads queue config (vt/delay/maxsize), calls `redis.call("TIME")`, mutates state, and (when realtime is on) `PUBLISH`es — all in one atomic invocation. No pre-fetch round trips.
-- **Logic lives in Lua, not in Rust or JS.** The Rust and Node libraries are thin wrappers over the same scripts. Cross-language wire compat is structural, not promised.
-- **Storage layout split for clarity.** Three keys per queue: a sorted set (`{ns}:{q}` for visibility ordering), a config hash (`{ns}:{q}:cfg`), and a per-message hash (`{ns}:{q}:msg`).
-- **Packed message values.** Each message is one hash entry: `"<rc>\n<fr>\n<sent>\n<body>"`. One `HGET` per receive instead of three; bodies can contain anything (newlines, NULs, binary).
-- **Microsecond scores.** No millisecond mode, no JS-rsmq compatibility branches.
-- **Hex IDs.** 32 lowercase hex chars (16 random bytes). No time prefix; ordering comes from the sorted-set score.
-
-## What you get
-
-- **At-least-once delivery** with visibility timeouts.
-- **At-most-once delivery** (`pop_message` / `popMessage`).
-- **Delayed messages** — schedule work for later.
-- **Per-message visibility heartbeats** — extend an in-flight message's hidden window from your worker.
-- **Atomic batches** — push or pull N messages in one round trip.
-- **Atomic dead-letter routing** — `move_message` and `receive_message_or_dlq`.
-- **Optional realtime pub/sub** — wake workers on enqueue.
-- **Cross-language interop** — Rust ↔ Node share queues by structure.
-- **A `Worker` helper on each side** — heartbeat, DLQ, graceful shutdown.
-
-## When *not* to use this
-
-- **Many thousands of msg/s sustained per queue with hard latency budgets.** Each call is one round trip; multiple workers scale linearly until Redis itself bottlenecks. If you need more than that, use a dedicated broker.
-- **Kafka-style partitioned consumer groups with strict cross-key ordering.**
-- **Persistent log replay.** Once a message is deleted, it's gone.
-
-## Tested
-
-- **Rust:** ~206 integration tests + doc tests, against a real Redis. Coverage: send/receive/delete/pop, batches, JSON, visibility, DLQ flows, worker semantics, concurrency, encoding edge cases, queue-name validation, lifecycle, properties.
-- **Node:** ~95 integration tests including the same scenarios on the Node side.
-- **Cross-language:** 20 interop tests where a Rust process and a Node process operate on the same queue and observe each other's writes — proven by CI.
+The Rust, Node, and cross-language CI matrix includes Redis 7, Redis 8,
+Valkey 9, and Dragonfly 2.1. The clients declare each key a Lua script accesses,
+so Dragonfly can use its default script checks. No server extension is needed.
+The matrix covers single-primary deployments using TCP.
 
 ## Storage layout
 

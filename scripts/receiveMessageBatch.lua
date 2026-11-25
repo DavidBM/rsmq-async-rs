@@ -1,13 +1,15 @@
 -- Atomically receive up to N visible messages.
 -- KEYS[1]: ns:qname           (sorted set key)
+-- KEYS[2]: ns:qname:cfg
+-- KEYS[3]: ns:qname:msg
 -- ARGV[1]: hidden ms ("-1" => use queue default `vt`)
 -- ARGV[2]: "true" or "false"  (delete after receive)
 -- ARGV[3]: max_count
 -- Returns an array of { id, body, rc, fr, sent } tuples.
 -- Errors: "QueueNotFound" if the queue doesn't exist.
 
-local cfg = KEYS[1] .. ":cfg"
-local msg = KEYS[1] .. ":msg"
+local cfg = KEYS[2]
+local msg = KEYS[3]
 
 if redis.call("EXISTS", cfg) == 0 then
     return redis.error_reply("QueueNotFound")

@@ -30,17 +30,17 @@ function load(name) {
  */
 const SCRIPT_DEFS = [
     ["rbmqCreateQueue", "createQueue", 2],
-    ["rbmqDeleteQueue", "deleteQueue", 2],
-    ["rbmqDeleteMessage", "deleteMessage", 1],
+    ["rbmqDeleteQueue", "deleteQueue", 4],
+    ["rbmqDeleteMessage", "deleteMessage", 2],
     ["rbmqSetQueueAttributes", "setQueueAttributes", 1],
     ["rbmqGetQueueAttributes", "getQueueAttributes", 2],
-    ["rbmqChangeMessageVisibility", "changeMessageVisibility", 1],
-    ["rbmqSendMessage", "sendMessage", 2],
-    ["rbmqSendMessageBatch", "sendMessageBatch", 2],
-    ["rbmqReceiveMessage", "receiveMessage", 1],
-    ["rbmqReceiveMessageBatch", "receiveMessageBatch", 1],
-    ["rbmqReceiveMessageOrDlq", "receiveMessageOrDlq", 2],
-    ["rbmqMoveMessage", "moveMessage", 2],
+    ["rbmqChangeMessageVisibility", "changeMessageVisibility", 3],
+    ["rbmqSendMessage", "sendMessage", 4],
+    ["rbmqSendMessageBatch", "sendMessageBatch", 4],
+    ["rbmqReceiveMessage", "receiveMessage", 3],
+    ["rbmqReceiveMessageBatch", "receiveMessageBatch", 3],
+    ["rbmqReceiveMessageOrDlq", "receiveMessageOrDlq", 6],
+    ["rbmqMoveMessage", "moveMessage", 5],
 ];
 
 /**

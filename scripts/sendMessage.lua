@@ -3,15 +3,17 @@
 --
 -- KEYS[1]: ns:qname           (sorted set key)
 -- KEYS[2]: ns:rt:qname        (realtime channel name)
--- ARGV[1]: id
+-- KEYS[3]: ns:qname:cfg
+-- KEYS[4]: ns:qname:msg
+-- ARGV[1]: random 16-hex-character ID suffix
 -- ARGV[2]: delay (ms) or "-1" to use the queue's default `delay`
 -- ARGV[3]: realtime ("1" or "0")
 -- ARGV[4]: body
--- Returns the assigned id (echoed for convenience).
+-- Returns the assigned id.
 -- Errors: "QueueNotFound" if the queue doesn't exist; "MessageTooLong" if body > maxsize.
 
-local cfg = KEYS[1] .. ":cfg"
-local msg = KEYS[1] .. ":msg"
+local cfg = KEYS[3]
+local msg = KEYS[4]
 
 if redis.call("EXISTS", cfg) == 0 then
     return redis.error_reply("QueueNotFound")
@@ -36,13 +38,15 @@ local time_us_str = sec_str .. string.rep("0", 6 - #usec_str) .. usec_str
 local now_us = tonumber(time[1]) * 1000000 + tonumber(time[2])
 local score = now_us + delay_ms * 1000
 
-redis.call("ZADD", KEYS[1], score, ARGV[1])
-redis.call("HSET", msg, ARGV[1], "0\n0\n" .. time_us_str .. "\n" .. ARGV[4])
-redis.call("HINCRBY", cfg, "totalsent", 1)
+-- Equal scores are sorted by ID. Prefix with the send counter to keep enqueue order.
+local sequence = redis.call("HINCRBY", cfg, "totalsent", 1)
+local id = string.format("%016x", sequence) .. ARGV[1]
+redis.call("ZADD", KEYS[1], score, id)
+redis.call("HSET", msg, id, "0\n0\n" .. time_us_str .. "\n" .. ARGV[4])
 
 if ARGV[3] == "1" then
     local size = redis.call("ZCARD", KEYS[1])
     redis.call("PUBLISH", KEYS[2], size)
 end
 
-return ARGV[1]
+return id

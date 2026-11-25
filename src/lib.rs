@@ -9,30 +9,42 @@
 //!
 //! ## Quick start
 //!
+//! The default worker acknowledges a job after its handler succeeds.
+//!
 //! ```no_run
-//! use rbmq::{Rbmq, RbmqConnection, RbmqError};
+//! use rbmq::{Rbmq, RbmqConnection};
+//! # #[cfg(feature = "worker")]
+//! use rbmq::{RbmqMessage, Worker};
+//! # #[cfg(feature = "worker")]
+//! use std::convert::Infallible;
 //!
-//! # async fn _example() -> Result<(), RbmqError> {
-//! let mut rbmq = Rbmq::new(Default::default()).await?;
+//! # async fn _example() -> Result<(), rbmq::RbmqError> {
+//! let url = "redis://127.0.0.1/";
+//! let mut queue = Rbmq::connect(url).await?;
+//! queue.ensure_queue("jobs").await?;
+//! queue.send_message("jobs", "generate-report", None).await?;
 //!
-//! rbmq.create_queue("jobs", None, None, None).await?;
-//! rbmq.send_message("jobs", "hello", None).await?;
-//!
-//! if let Some(msg) = rbmq.receive_message::<String>("jobs", None).await? {
-//!     // ...process msg.message...
-//!     rbmq.delete_message("jobs", &msg.id).await?;
-//! }
+//! # #[cfg(feature = "worker")]
+//! Worker::from_url(url)
+//!     .route("jobs", |job: RbmqMessage<String>| async move {
+//!         println!("Processing {}", job.message);
+//!         Ok::<(), Infallible>(())
+//!     })
+//!     .build()
+//!     .await?
+//!     .run()
+//!     .await?;
 //! # Ok(())
 //! # }
 //! ```
 //!
-//! Always call [`RbmqConnection::delete_message`] after a successful receive — that's what
-//! confirms delivery. Otherwise the message becomes visible again after the queue's `vt`.
+//! When polling manually through [`RbmqConnection::receive_message`], use
+//! [`RbmqConnection::delete_message`] to acknowledge successful processing.
 //!
 //! ## Implementations
 //!
-//! All three implement the same [`RbmqConnection`] trait, so write code against the trait
-//! to stay implementation-agnostic.
+//! The async multiplexed and pooled clients implement [`RbmqConnection`]. The sync
+//! wrapper provides the matching blocking API.
 //!
 //! - [`Rbmq`] — multiplexed connection. **Start here.** Right for almost all workloads.
 //! - [`PooledRbmq`] — connection pool. Use for large payloads where a slow op would block others.
@@ -42,7 +54,7 @@
 //!
 //! Set `realtime: true` in [`RbmqOptions`] and rbmq will `PUBLISH` to `{ns}:rt:{qname}` on every
 //! `send_message`. Subscribe with `redis-rs` to wake workers immediately instead of polling.
-//! Use a single subscriber per queue — multiple workers racing on `SUBSCRIBE` is a common mistake.
+//! Subscribed workers still claim jobs atomically and poll periodically for delayed jobs.
 //!
 //! ## Custom message types
 //!

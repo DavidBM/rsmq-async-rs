@@ -1,5 +1,5 @@
 import { describe, it, expect, afterEach } from "vitest";
-import { makeClient, sleep } from "./helper.js";
+import { makeClient } from "./helper.js";
 
 describe("concurrency and uniqueness", () => {
     let env;
@@ -91,8 +91,6 @@ describe("concurrency and uniqueness", () => {
         await env.rbmq.createQueue("q");
         for (let i = 0; i < 30; i++) {
             await env.rbmq.sendMessage("q", `m-${String(i).padStart(3, "0")}`);
-            // tiny gap so microsecond scores differ
-            await sleep(1);
         }
         for (let i = 0; i < 30; i++) {
             const m = await env.rbmq.receiveMessage("q");

@@ -15,6 +15,34 @@ async fn new_rbmq(ctx: &TestContext) -> Rbmq {
 }
 
 #[test]
+fn missing_dead_letter_queue_does_not_change_the_source() {
+    rt().block_on(async {
+        let ctx = TestContext::new();
+        let mut rbmq = new_rbmq(&ctx).await;
+        rbmq.ensure_queue("src").await.unwrap();
+        let id = rbmq.send_message("src", "payload", None).await.unwrap();
+        assert_eq!(
+            rbmq.move_message("src", &id, "missing").await,
+            Err(RbmqError::QueueNotFound)
+        );
+        assert!(matches!(
+            rbmq.receive_message_or_dlq::<String>("src", None, "missing", 0)
+                .await,
+            Err(RbmqError::QueueNotFound)
+        ));
+        let msg = rbmq
+            .receive_message::<String>("src", None)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(msg.id, id);
+        assert_eq!(msg.rc, 1);
+        assert!(rbmq.ensure_queue("missing").await.unwrap());
+        assert_eq!(rbmq.get_queue_attributes("missing").await.unwrap().msgs, 0);
+    });
+}
+
+#[test]
 fn move_message_relocates_message() {
     rt().block_on(async {
         let ctx = TestContext::new();

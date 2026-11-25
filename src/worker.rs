@@ -28,7 +28,7 @@
 //! ```
 
 use crate::types::RedisBytes;
-use crate::{Rbmq, RbmqConnection, RbmqError, RbmqMessage, RbmqOptions, RbmqResult};
+use crate::{Rbmq, RbmqError, RbmqMessage, RbmqOptions, RbmqResult};
 use core::convert::TryFrom;
 use futures_util::StreamExt;
 use log::{error, warn};
@@ -37,13 +37,12 @@ use std::error::Error as StdError;
 use std::fmt;
 use std::future::Future;
 use std::pin::Pin;
-use std::sync::Arc;
 use std::time::Duration;
 
 type HandlerError = Box<dyn StdError + Send + Sync>;
 type HandlerResult = Result<(), HandlerError>;
 type HandlerFuture = Pin<Box<dyn Future<Output = HandlerResult> + Send>>;
-type ErasedHandler = Arc<dyn Fn(RbmqMessage<Vec<u8>>) -> HandlerFuture + Send + Sync>;
+type ErasedHandler = Box<dyn Fn(RbmqMessage<Vec<u8>>) -> HandlerFuture + Send + Sync>;
 
 /// Error wrapping a message-decoding failure; used so handlers can surface a typed error
 /// instead of a panic when `TryFrom<RedisBytes>` rejects the bytes.
@@ -73,7 +72,8 @@ struct DlqConfig {
 
 /// Builds a [`Worker`].
 pub struct WorkerBuilder {
-    options: RbmqOptions,
+    client: RbmqResult<redis::Client>,
+    namespace: String,
     routes: HashMap<String, ErasedHandler>,
     poll_interval: Duration,
     heartbeat_interval: Duration,
@@ -84,9 +84,10 @@ pub struct WorkerBuilder {
 }
 
 impl WorkerBuilder {
-    fn new(options: RbmqOptions) -> Self {
+    fn new(client: RbmqResult<redis::Client>, namespace: String) -> Self {
         Self {
-            options,
+            client,
+            namespace,
             routes: HashMap::new(),
             poll_interval: Duration::from_secs(1),
             heartbeat_interval: Duration::from_secs(10),
@@ -109,26 +110,35 @@ impl WorkerBuilder {
         T: TryFrom<RedisBytes, Error = Vec<u8>> + Send + 'static,
         E: StdError + Send + Sync + 'static,
     {
-        let handler = Arc::new(handler);
-        let erased: ErasedHandler = Arc::new(move |raw: RbmqMessage<Vec<u8>>| {
-            let handler = handler.clone();
+        let erased: ErasedHandler = Box::new(move |raw: RbmqMessage<Vec<u8>>| {
+            let message = match T::try_from(RedisBytes::from(raw.message)) {
+                Ok(message) => message,
+                Err(bytes) => {
+                    return Box::pin(std::future::ready(Err(
+                        Box::new(DecodeError(bytes)) as HandlerError
+                    )));
+                }
+            };
+            let future = handler(RbmqMessage {
+                id: raw.id,
+                message,
+                rc: raw.rc,
+                fr: raw.fr,
+                sent: raw.sent,
+            });
             Box::pin(async move {
-                let bytes = RedisBytes::from(raw.message);
-                let typed = T::try_from(bytes)
-                    .map_err(|b| Box::new(DecodeError(b)) as Box<dyn StdError + Send + Sync>)?;
-                let msg = RbmqMessage {
-                    id: raw.id,
-                    message: typed,
-                    rc: raw.rc,
-                    fr: raw.fr,
-                    sent: raw.sent,
-                };
-                handler(msg)
+                future
                     .await
-                    .map_err(|e| Box::new(e) as Box<dyn StdError + Send + Sync>)
+                    .map_err(|error| Box::new(error) as HandlerError)
             })
         });
         self.routes.insert(qname.into(), erased);
+        self
+    }
+
+    /// Set the queue namespace. The default for a URL-configured worker is `rbmq`.
+    pub fn namespace(mut self, namespace: impl Into<String>) -> Self {
+        self.namespace = namespace.into();
         self
     }
 
@@ -145,7 +155,9 @@ impl WorkerBuilder {
         self
     }
 
-    /// How far into the future each heartbeat pushes the message's visibility. Default: 30s.
+    /// Minimum visibility when a job is received and the window renewed by each heartbeat.
+    ///
+    /// Defaults to 30s. Handler failures retry using the queue's configured visibility delay.
     pub fn visibility_extension(mut self, d: Duration) -> Self {
         self.visibility_extension = d;
         self
@@ -196,11 +208,20 @@ impl WorkerBuilder {
     }
 
     /// Build the [`Worker`], opening connections to Redis. Returns an error if any of the
-    /// connections fail to open, if a route is configured with its own queue as DLQ
+    /// connections fail to open, if heartbeat settings are invalid,
+    /// if a route is configured with its own queue as DLQ
     /// (would loop forever), or, when `use_realtime` is on, if subscribing fails.
-    pub async fn build(self) -> RbmqResult<Worker> {
+    pub async fn build(mut self) -> RbmqResult<Worker> {
         if self.routes.is_empty() {
             return Err(RbmqError::NoAttributeSupplied);
+        }
+        let visibility_ms = crate::functions::duration_milliseconds(self.visibility_extension)?;
+        let heartbeat_ms = self.heartbeat_interval.as_millis();
+        if heartbeat_ms == 0 || heartbeat_ms >= u128::from(visibility_ms) {
+            return Err(RbmqError::InvalidFormat(
+                "heartbeat interval must be at least 1ms and shorter than visibility extension"
+                    .into(),
+            ));
         }
         // Reject self-loops (route X with DLQ X) up front.
         for route in self.routes.keys() {
@@ -215,23 +236,43 @@ impl WorkerBuilder {
                 )));
             }
         }
-        let rbmq = Rbmq::new(self.options.clone()).await?;
+        let client = self.client?;
+        let rbmq = Rbmq::from_client(&client, false, &self.namespace).await?;
         let pubsub = if self.use_realtime {
-            Some(open_pubsub(&self.options, self.routes.keys()).await?)
+            let mut pubsub = client.get_async_pubsub().await?;
+            for qname in self.routes.keys() {
+                pubsub
+                    .subscribe(format!("{}:rt:{qname}", self.namespace))
+                    .await?;
+            }
+            Some(pubsub)
         } else {
             None
         };
+        let routes = self
+            .routes
+            .into_iter()
+            .map(|(qname, handler)| {
+                let dlq = self
+                    .route_dlqs
+                    .remove(&qname)
+                    .or_else(|| self.global_dlq.clone());
+                Route {
+                    qname,
+                    handler,
+                    dlq,
+                }
+            })
+            .collect();
         Ok(Worker {
             rbmq,
             pubsub,
-            routes: self.routes.into_iter().collect(),
+            routes,
             config: WorkerConfig {
                 poll_interval: self.poll_interval,
                 heartbeat_interval: self.heartbeat_interval,
                 visibility_extension: self.visibility_extension,
             },
-            global_dlq: self.global_dlq,
-            route_dlqs: self.route_dlqs,
         })
     }
 }
@@ -240,10 +281,14 @@ impl WorkerBuilder {
 pub struct Worker {
     rbmq: Rbmq,
     pubsub: Option<redis::aio::PubSub>,
-    routes: Vec<(String, ErasedHandler)>,
+    routes: Vec<Route>,
     config: WorkerConfig,
-    global_dlq: Option<DlqConfig>,
-    route_dlqs: HashMap<String, DlqConfig>,
+}
+
+struct Route {
+    qname: String,
+    handler: ErasedHandler,
+    dlq: Option<DlqConfig>,
 }
 
 struct WorkerConfig {
@@ -255,7 +300,14 @@ struct WorkerConfig {
 impl Worker {
     /// Start a [`WorkerBuilder`].
     pub fn builder(options: RbmqOptions) -> WorkerBuilder {
-        WorkerBuilder::new(options)
+        let client = options.redis_client().map_err(RbmqError::from);
+        WorkerBuilder::new(client, options.ns)
+    }
+
+    /// Start a worker from a Redis URL, in the default namespace.
+    pub fn from_url(url: &str) -> WorkerBuilder {
+        let client = redis::Client::open(url).map_err(RbmqError::from);
+        WorkerBuilder::new(client, "rbmq".into())
     }
 
     /// Run forever. Returns only on a fatal Redis error.
@@ -265,16 +317,13 @@ impl Worker {
 
     /// Run until `shutdown` resolves. The current in-flight handler (if any) is allowed to
     /// finish before the worker returns; handlers are never cancelled mid-flight. Shutdown is
-    /// checked between polling rounds — if the queues are saturated, exit may be delayed by
-    /// up to one round (≈ one message per registered queue).
+    /// checked before each polling round. A round handles up to one message per route.
     pub async fn run_until<S>(mut self, shutdown: S) -> RbmqResult<()>
     where
         S: Future<Output = ()> + Send,
     {
         let mut shutdown = Box::pin(shutdown);
         loop {
-            let did_work = self.poll_round().await?;
-
             // Cheap non-blocking shutdown check between rounds.
             tokio::select! {
                 biased;
@@ -282,7 +331,7 @@ impl Worker {
                 _ = std::future::ready(()) => {}
             }
 
-            if !did_work {
+            if !self.poll_round().await? {
                 let mut wait = Box::pin(self.wait_for_work());
                 tokio::select! {
                     _ = &mut shutdown => return Ok(()),
@@ -295,130 +344,104 @@ impl Worker {
     /// One pass over all routes. Returns true if any message was processed.
     async fn poll_round(&mut self) -> RbmqResult<bool> {
         let mut did_work = false;
-        for idx in 0..self.routes.len() {
-            // Avoid borrowing self.routes for the whole iteration so we can mutably use self.rbmq.
-            let qname = self.routes[idx].0.clone();
-            let handler = self.routes[idx].1.clone();
-            let raw = self.rbmq.receive_message::<Vec<u8>>(&qname, None).await?;
+        for route in &self.routes {
+            let raw = self
+                .rbmq
+                .receive_for_worker(&route.qname, self.config.visibility_extension)
+                .await?;
             let Some(raw) = raw else {
                 continue;
             };
             did_work = true;
-            self.dispatch(&qname, &handler, raw).await?;
+            dispatch(&mut self.rbmq, &self.config, route, raw).await?;
         }
         Ok(did_work)
     }
 
-    async fn dispatch(
-        &mut self,
-        qname: &str,
-        handler: &ErasedHandler,
-        msg: RbmqMessage<Vec<u8>>,
-    ) -> RbmqResult<()> {
-        let msg_id = msg.id.clone();
-        let msg_rc = msg.rc;
-        let mut handler_fut = (handler)(msg);
-        let mut ticker = tokio::time::interval(self.config.heartbeat_interval);
-        ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
-        ticker.tick().await; // skip the immediate tick
-
-        let outcome = loop {
-            tokio::select! {
-                result = &mut handler_fut => break result,
-                _ = ticker.tick() => {
-                    // Heartbeat failures are logged but don't abort the handler; the message
-                    // will simply be redelivered if the handler runs past its visibility.
-                    if let Err(e) = self
-                        .rbmq
-                        .change_message_visibility(qname, &msg_id, self.config.visibility_extension)
-                        .await
-                    {
-                        warn!("rbmq worker: heartbeat failed for {qname}/{msg_id}: {e}");
-                    }
-                }
-            }
-        };
-
-        match outcome {
-            Ok(()) => {
-                self.rbmq.delete_message(qname, &msg_id).await?;
-            }
-            Err(e) => {
-                let dlq_target = self
-                    .dlq_for_route(qname)
-                    .filter(|d| msg_rc > d.max_failures)
-                    .map(|d| d.queue.clone());
-                if let Some(dlq_queue) = dlq_target {
-                    match self.rbmq.move_message(qname, &msg_id, &dlq_queue).await {
-                        Ok(true) => {
-                            warn!(
-                                "rbmq worker: routed {qname}/{msg_id} to DLQ {dlq_queue} after {msg_rc} failure(s): {e}"
-                            );
-                        }
-                        Ok(false) => {
-                            // Message disappeared (concurrent delete?). Nothing to do.
-                        }
-                        Err(move_err) => {
-                            error!(
-                                "rbmq worker: failed to move {qname}/{msg_id} to DLQ {dlq_queue}: {move_err} (handler error: {e})"
-                            );
-                        }
-                    }
-                    return Ok(());
-                }
-                warn!(
-                    "rbmq worker: handler failed for {qname}/{msg_id} (rc={msg_rc}): {e} (will redeliver)"
-                );
-                // Leave the message hidden — it will be redelivered after the queue's vt.
-            }
-        }
-        Ok(())
-    }
-
-    fn dlq_for_route(&self, qname: &str) -> Option<&DlqConfig> {
-        self.route_dlqs.get(qname).or(self.global_dlq.as_ref())
-    }
-
     async fn wait_for_work(&mut self) {
-        match self.pubsub.as_mut() {
-            Some(pubsub) => {
-                let mut stream = pubsub.on_message();
-                let timer = tokio::time::sleep(self.config.poll_interval);
-                tokio::pin!(timer);
-                tokio::select! {
-                    _ = &mut timer => {},
-                    _ = stream.next() => {},
-                }
+        if let Some(pubsub) = self.pubsub.as_mut() {
+            let mut stream = pubsub.on_message();
+            tokio::select! {
+                _ = tokio::time::sleep(self.config.poll_interval) => return,
+                signal = stream.next() => {
+                    if signal.is_some() {
+                        return;
+                    }
+                },
             }
-            None => {
-                tokio::time::sleep(self.config.poll_interval).await;
-            }
+            drop(stream);
+            self.pubsub = None;
         }
+        tokio::time::sleep(self.config.poll_interval).await;
     }
 }
 
-async fn open_pubsub<'a, I>(opts: &RbmqOptions, channels: I) -> RbmqResult<redis::aio::PubSub>
-where
-    I: IntoIterator<Item = &'a String>,
-{
-    let mut redis_info = redis::RedisConnectionInfo::default()
-        .set_db(opts.db.into())
-        .set_protocol(opts.protocol);
-    if let Some(username) = opts.username.clone() {
-        redis_info = redis_info.set_username(username);
+async fn dispatch(
+    rbmq: &mut Rbmq,
+    config: &WorkerConfig,
+    route: &Route,
+    msg: RbmqMessage<Vec<u8>>,
+) -> RbmqResult<()> {
+    let qname = &route.qname;
+    let msg_id = msg.id.clone();
+    let receive_count = msg.rc;
+    let mut handler_fut = (route.handler)(msg);
+    let first_heartbeat = tokio::time::Instant::now() + config.heartbeat_interval;
+    let mut ticker = tokio::time::interval_at(first_heartbeat, config.heartbeat_interval);
+    ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+
+    let outcome = loop {
+        tokio::select! {
+            biased;
+            result = &mut handler_fut => break result,
+            _ = ticker.tick() => {
+                match rbmq
+                    .update_lease(qname, &msg_id, receive_count, Some(config.visibility_extension))
+                    .await
+                {
+                    Ok(true) => {}
+                    Ok(false) => {
+                        // The attempt is stale. Finish its handler without mutating Redis.
+                        let _ = handler_fut.await;
+                        return Ok(());
+                    }
+                    Err(error) => warn!("rbmq worker: heartbeat failed for {qname}/{msg_id}: {error}"),
+                }
+            }
+        }
+    };
+
+    let Err(handler_error) = outcome else {
+        rbmq.acknowledge(qname, &msg_id, receive_count).await?;
+        return Ok(());
+    };
+
+    if let Some(dlq) = route
+        .dlq
+        .as_ref()
+        .filter(|dlq| receive_count > dlq.max_failures)
+    {
+        match rbmq.dead_letter(qname, &msg_id, receive_count, &dlq.queue).await {
+            Ok(moved) => {
+                if moved {
+                    warn!(
+                        "rbmq worker: routed {qname}/{msg_id} to DLQ {} after {receive_count} failure(s): {handler_error}",
+                        dlq.queue,
+                    );
+                }
+                return Ok(());
+            }
+            Err(error) => error!(
+                "rbmq worker: failed to move {qname}/{msg_id} to DLQ {}: {error} (handler error: {handler_error})",
+                dlq.queue,
+            ),
+        }
+    } else {
+        warn!("rbmq worker: handler failed for {qname}/{msg_id} (rc={receive_count}): {handler_error}");
     }
-    if let Some(password) = opts.password.clone() {
-        redis_info = redis_info.set_password(password);
+
+    if let Err(error) = rbmq.update_lease(qname, &msg_id, receive_count, None).await {
+        warn!("rbmq worker: could not schedule retry for {qname}/{msg_id}: {error}");
     }
-    let conn_info = format!("redis://{}:{}", opts.host, opts.port)
-        .parse::<redis::ConnectionInfo>()?
-        .set_redis_settings(redis_info);
-    let client = redis::Client::open(conn_info)?;
-    let mut pubsub = client.get_async_pubsub().await?;
-    for qname in channels {
-        pubsub
-            .subscribe(format!("{}:rt:{}", opts.ns, qname))
-            .await?;
-    }
-    Ok(pubsub)
+    Ok(())
 }

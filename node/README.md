@@ -19,7 +19,7 @@ import { createClient } from "@davidbm/rbmq";
 const redis = new Redis(); // your connection, your lifecycle
 const rbmq = createClient(redis, { ns: "rbmq" });
 
-await rbmq.createQueue("jobs");
+await rbmq.ensureQueue("jobs");
 await rbmq.sendMessage("jobs", "hello");
 
 const msg = await rbmq.receiveMessage("jobs");
@@ -49,6 +49,7 @@ Returns an rbmq client object. `options.ns` (default `"rbmq"`), `options.realtim
 
 | method | notes |
 |---|---|
+| `ensureQueue(qname, opts?)` | Creates a queue if needed. Returns whether it was created. Existing settings and jobs are preserved. |
 | `createQueue(qname, { vt?, delay?, maxsize? })` | `vt` and `delay` are ms (number, BigInt, or `null`). `maxsize` is bytes (`-1` for unlimited). |
 | `deleteQueue(qname)` | Removes config + bodies + index entry. |
 | `listQueues()` | `Promise<string[]>` |
@@ -66,7 +67,10 @@ Returns an rbmq client object. `options.ns` (default `"rbmq"`), `options.realtim
 
 ### `createWorker(options)`
 
-A polling helper with built-in heartbeat, optional DLQ, and clean shutdown.
+A polling helper with automatic acknowledgment, a renewable processing lease,
+optional dead-letter routing, and graceful shutdown. Handler failures retry
+using the queue's visibility timeout. A worker whose delivery has been
+reclaimed cannot acknowledge or move the newer attempt.
 
 ```js
 import { createWorker } from "@davidbm/rbmq";

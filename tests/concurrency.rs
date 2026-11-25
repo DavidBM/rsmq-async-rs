@@ -191,17 +191,15 @@ fn sequential_sends_deliver_in_order() {
 }
 
 #[test]
-fn batch_send_then_receive_returns_same_set() {
-    // Within a batch all messages share the same score (same TIME inside the script);
-    // ZRANGE ties are broken lexicographically by the id, so receive order does NOT
-    // match input order. The set of payloads and the count must match exactly.
+fn batch_send_preserves_input_order_at_equal_visibility() {
     rt().block_on(async {
         let ctx = TestContext::new();
         let mut q = new_rbmq(&ctx).await;
-        q.create_queue("q", None, None, None).await.unwrap();
+        q.ensure_queue("q").await.unwrap();
 
         let payloads: Vec<String> = (0..30).map(|i| format!("b-{i:03}")).collect();
-        q.send_message_batch("q", payloads.clone(), None)
+        let ids = q
+            .send_message_batch("q", payloads.clone(), None)
             .await
             .unwrap();
 
@@ -209,10 +207,13 @@ fn batch_send_then_receive_returns_same_set() {
             .receive_message_batch::<String>("q", None, 30)
             .await
             .unwrap();
-        assert_eq!(received.len(), 30);
-        let got: HashSet<String> = received.into_iter().map(|m| m.message).collect();
-        let want: HashSet<String> = payloads.into_iter().collect();
-        assert_eq!(got, want);
+        assert_eq!(received.len(), payloads.len());
+        for ((message, expected_payload), expected_id) in
+            received.into_iter().zip(payloads).zip(ids)
+        {
+            assert_eq!(message.message, expected_payload);
+            assert_eq!(message.id, expected_id);
+        }
     });
 }
 

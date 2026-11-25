@@ -11,29 +11,32 @@ pub struct RedisServer {
 
 impl RedisServer {
     pub fn new() -> RedisServer {
-        if which_redis_server() {
-            let addr = {
-                let listener = net2::TcpBuilder::new_v4()
-                    .unwrap()
-                    .reuse_address(true)
-                    .unwrap()
-                    .bind("127.0.0.1:0")
-                    .unwrap()
-                    .listen(1)
-                    .unwrap();
-                let server_port = listener.local_addr().unwrap().port();
-                redis::ConnectionAddr::Tcp("127.0.0.1".to_string(), server_port)
-            };
-            RedisServer::spawn(addr)
-        } else {
-            let url = std::env::var("REDIS_URL").unwrap_or_else(|_| "127.0.0.1:6379".to_string());
+        if let Ok(url) = std::env::var("REDIS_URL") {
             let (host, port) = url
                 .rsplit_once(':')
                 .map(|(h, p)| (h.to_string(), p.parse().expect("invalid REDIS_URL port")))
-                .unwrap_or_else(|| (url, 6379));
-            RedisServer {
+                .unwrap_or((url, 6379));
+            return RedisServer {
                 process: None,
                 addr: redis::ConnectionAddr::Tcp(host, port),
+            };
+        }
+        if which_redis_server() {
+            let listener = net2::TcpBuilder::new_v4()
+                .unwrap()
+                .reuse_address(true)
+                .unwrap()
+                .bind("127.0.0.1:0")
+                .unwrap()
+                .listen(1)
+                .unwrap();
+            let port = listener.local_addr().unwrap().port();
+            drop(listener);
+            RedisServer::spawn(redis::ConnectionAddr::Tcp("127.0.0.1".to_string(), port))
+        } else {
+            RedisServer {
+                process: None,
+                addr: redis::ConnectionAddr::Tcp("127.0.0.1".to_string(), 6379),
             }
         }
     }
