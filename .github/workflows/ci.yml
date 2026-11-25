@@ -94,9 +94,10 @@ jobs:
 
       - name: Check the packed Node package
         run: |
-          tarball=$(npm pack --pack-destination "$RUNNER_TEMP")
+          pack_dir=$(mktemp -d)
+          npm pack --pack-destination "$pack_dir"
           cd "$(mktemp -d)"
-          npm install --no-audit --no-fund "$RUNNER_TEMP/$tarball"
+          npm install --no-audit --no-fund "$pack_dir"/*.tgz
           node --input-type=module <<'JS'
           import assert from 'node:assert/strict';
           import Redis from 'ioredis';
