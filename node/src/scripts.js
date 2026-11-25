@@ -1,16 +1,20 @@
-// Loads the shared Lua scripts from /scripts at the repo root and registers
+// Loads the shared Lua scripts from the package or the repository and registers
 // them on an ioredis client via defineCommand. Each script becomes a method
 // on the client (e.g. client.rbmqSendMessage(...)).
 //
 // Why defineCommand: ioredis hashes the script once, calls EVALSHA, and falls
 // back to EVAL automatically on NOSCRIPT. No manual cache management needed.
 
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const SCRIPTS_DIR = join(__dirname, "..", "..", "scripts");
+const packagedScripts = join(__dirname, "..", "scripts");
+const checkoutRoot = join(__dirname, "..", "..");
+const SCRIPTS_DIR = existsSync(join(checkoutRoot, "Cargo.toml"))
+    ? join(checkoutRoot, "scripts")
+    : packagedScripts;
 
 function load(name) {
     return readFileSync(join(SCRIPTS_DIR, `${name}.lua`), "utf8");

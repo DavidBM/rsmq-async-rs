@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- Prepare the Node.js alpha as `@davidbm/rbmq` and include the shared Lua scripts and MIT license in its tarball.
+- Document how to install the alpha from source and where to find the published `rsmq_async` 18.x source.
+
 ## rbmq 1.0.0-alpha.1 - 2026-05-10
 
 The crate has been renamed from `rsmq_async` to `rbmq` and re-architected. **Not wire-compatible** with `rsmq_async` v17/v18 or with the original `smrchy/rsmq` Node package. Users needing the JS-rsmq wire format should stay on `rsmq_async` v17 or v18.

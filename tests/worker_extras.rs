@@ -2,7 +2,7 @@
 
 mod support;
 
-use rbmq::{Rbmq, RbmqConnection as _, RbmqMessage, RbmqOptions, Worker};
+use rbmq::{Rbmq, RbmqConnection as _, RbmqMessage, Worker};
 use std::convert::Infallible;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
@@ -19,13 +19,6 @@ async fn new_rbmq(ctx: &TestContext) -> Rbmq {
         .unwrap()
 }
 
-fn opts(ns: &str) -> RbmqOptions {
-    RbmqOptions {
-        ns: ns.to_string(),
-        ..Default::default()
-    }
-}
-
 #[test]
 fn worker_drains_many_messages() {
     rt().block_on(async {
@@ -38,7 +31,7 @@ fn worker_drains_many_messages() {
 
         let count = Arc::new(AtomicUsize::new(0));
         let c = count.clone();
-        let worker = Worker::builder(opts(&ctx.ns))
+        let worker = Worker::builder(ctx.worker_options())
             .route("q", move |_msg: RbmqMessage<String>| {
                 let c = c.clone();
                 async move {
@@ -91,7 +84,7 @@ fn worker_routes_messages_for_two_queues_concurrently() {
         let a = a_count.clone();
         let b = b_count.clone();
 
-        let worker = Worker::builder(opts(&ctx.ns))
+        let worker = Worker::builder(ctx.worker_options())
             .route("a", move |_: RbmqMessage<String>| {
                 let a = a.clone();
                 async move {
@@ -151,7 +144,7 @@ fn worker_dlq_per_route_with_distinct_dlqs() {
         }
         impl std::error::Error for Boom {}
 
-        let worker = Worker::builder(opts(&ctx.ns))
+        let worker = Worker::builder(ctx.worker_options())
             .route("a", |_: RbmqMessage<String>| async { Err::<(), _>(Boom) })
             .route("b", |_: RbmqMessage<String>| async { Err::<(), _>(Boom) })
             .dlq_for("a", "a_dlq", 0)
@@ -193,7 +186,7 @@ fn worker_dlq_with_route_specific_overrides_global() {
         }
         impl std::error::Error for Boom {}
 
-        let worker = Worker::builder(opts(&ctx.ns))
+        let worker = Worker::builder(ctx.worker_options())
             .route("a", |_: RbmqMessage<String>| async { Err::<(), _>(Boom) })
             .route("b", |_: RbmqMessage<String>| async { Err::<(), _>(Boom) })
             .dlq("global_dlq", 0)
@@ -236,7 +229,7 @@ fn worker_continues_after_handler_panic_in_separate_run_call() {
         }
         impl std::error::Error for Boom {}
 
-        let worker = Worker::builder(opts(&ctx.ns))
+        let worker = Worker::builder(ctx.worker_options())
             .route("q", move |_: RbmqMessage<String>| {
                 let a = a.clone();
                 let n = a.fetch_add(1, Ordering::SeqCst);
@@ -268,7 +261,7 @@ fn worker_with_no_messages_idles_without_error() {
         let mut rbmq = new_rbmq(&ctx).await;
         rbmq.create_queue("q", None, None, None).await.unwrap();
 
-        let worker = Worker::builder(opts(&ctx.ns))
+        let worker = Worker::builder(ctx.worker_options())
             .route("q", |_: RbmqMessage<String>| async {
                 Ok::<(), Infallible>(())
             })
@@ -292,7 +285,7 @@ fn worker_shutdown_signal_is_respected_promptly() {
         let mut rbmq = new_rbmq(&ctx).await;
         rbmq.create_queue("q", None, None, None).await.unwrap();
 
-        let worker = Worker::builder(opts(&ctx.ns))
+        let worker = Worker::builder(ctx.worker_options())
             .route("q", |_: RbmqMessage<String>| async {
                 Ok::<(), Infallible>(())
             })
@@ -332,7 +325,7 @@ fn worker_error_path_logs_and_redelivers() {
         }
         impl std::error::Error for Boom {}
 
-        let worker = Worker::builder(opts(&ctx.ns))
+        let worker = Worker::builder(ctx.worker_options())
             .route("q", move |_: RbmqMessage<String>| {
                 let c = c.clone();
                 async move {
@@ -362,7 +355,7 @@ fn worker_decode_error_does_not_call_handler() {
 
         let calls = Arc::new(AtomicUsize::new(0));
         let c = calls.clone();
-        let worker = Worker::builder(opts(&ctx.ns))
+        let worker = Worker::builder(ctx.worker_options())
             .route("q", move |_: RbmqMessage<String>| {
                 let c = c.clone();
                 async move {
@@ -391,7 +384,7 @@ fn worker_handler_with_vec_u8_decodes_anything() {
 
         let got = Arc::new(std::sync::Mutex::new(Vec::<u8>::new()));
         let g = got.clone();
-        let worker = Worker::builder(opts(&ctx.ns))
+        let worker = Worker::builder(ctx.worker_options())
             .route("q", move |m: RbmqMessage<Vec<u8>>| {
                 let g = g.clone();
                 async move {

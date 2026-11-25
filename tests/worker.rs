@@ -2,7 +2,7 @@
 
 mod support;
 
-use rbmq::{Rbmq, RbmqConnection as _, RbmqError, RbmqMessage, RbmqOptions, Worker};
+use rbmq::{Rbmq, RbmqConnection as _, RbmqError, RbmqMessage, Worker};
 use std::convert::Infallible;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
@@ -19,13 +19,6 @@ async fn new_rbmq(ctx: &TestContext) -> Rbmq {
         .unwrap()
 }
 
-fn opts(ns: &str) -> RbmqOptions {
-    RbmqOptions {
-        ns: ns.to_string(),
-        ..Default::default()
-    }
-}
-
 #[test]
 fn processes_message_and_deletes_on_success() {
     rt().block_on(async {
@@ -38,7 +31,7 @@ fn processes_message_and_deletes_on_success() {
 
         let calls = Arc::new(AtomicUsize::new(0));
         let c = calls.clone();
-        let worker = Worker::builder(opts(&ctx.ns))
+        let worker = Worker::builder(ctx.worker_options())
             .poll_interval(Duration::from_millis(50))
             .route("q", move |msg: RbmqMessage<String>| {
                 let c = c.clone();
@@ -82,7 +75,7 @@ fn handler_error_leaves_message_in_queue() {
             .await
             .unwrap();
 
-        let worker = Worker::builder(opts(&ctx.ns))
+        let worker = Worker::builder(ctx.worker_options())
             .poll_interval(Duration::from_millis(50))
             .route("q", |_msg: RbmqMessage<String>| async {
                 Err::<(), HandlerErr>(HandlerErr)
@@ -124,7 +117,7 @@ fn router_dispatches_by_queue_name() {
         let billing = Arc::new(AtomicUsize::new(0));
         let e = emails.clone();
         let b = billing.clone();
-        let worker = Worker::builder(opts(&ctx.ns))
+        let worker = Worker::builder(ctx.worker_options())
             .poll_interval(Duration::from_millis(50))
             .route("emails", move |msg: RbmqMessage<String>| {
                 let e = e.clone();
@@ -163,7 +156,7 @@ fn router_dispatches_by_queue_name() {
 fn empty_routes_fail_to_build() {
     rt().block_on(async {
         let ctx = TestContext::new();
-        let result = Worker::builder(opts(&ctx.ns)).build().await;
+        let result = Worker::builder(ctx.worker_options()).build().await;
         assert!(matches!(result, Err(RbmqError::NoAttributeSupplied)));
     });
 }
@@ -181,7 +174,7 @@ fn heartbeat_keeps_slow_handler_safe() {
             .await
             .unwrap();
 
-        let worker = Worker::builder(opts(&ctx.ns))
+        let worker = Worker::builder(ctx.worker_options())
             .poll_interval(Duration::from_millis(50))
             .heartbeat_interval(Duration::from_millis(50))
             .visibility_extension(Duration::from_millis(500))
@@ -221,7 +214,7 @@ fn dlq_max_failures_zero_routes_on_first_failure() {
             .await
             .unwrap();
 
-        let worker = Worker::builder(opts(&ctx.ns))
+        let worker = Worker::builder(ctx.worker_options())
             .poll_interval(Duration::from_millis(50))
             .dlq("dead", 0)
             .route("work", |_msg: RbmqMessage<String>| async {
@@ -266,7 +259,7 @@ fn dlq_per_route_override_takes_precedence_over_global() {
             .await
             .unwrap();
 
-        let worker = Worker::builder(opts(&ctx.ns))
+        let worker = Worker::builder(ctx.worker_options())
             .poll_interval(Duration::from_millis(50))
             .dlq("global_dead", 0)
             .dlq_for("work", "work_dead", 0)
@@ -310,7 +303,7 @@ fn dlq_max_failures_one_keeps_message_until_second_failure() {
             .await
             .unwrap();
 
-        let worker = Worker::builder(opts(&ctx.ns))
+        let worker = Worker::builder(ctx.worker_options())
             .poll_interval(Duration::from_millis(50))
             // We want to exercise the DLQ path on rc=2, but the worker's heartbeat would keep
             // extending vt and prevent redelivery. Set a heartbeat much longer than the test
@@ -350,7 +343,7 @@ fn dlq_max_failures_one_keeps_message_until_second_failure() {
 fn dlq_self_loop_rejected_at_build() {
     rt().block_on(async {
         let ctx = TestContext::new();
-        let result = Worker::builder(opts(&ctx.ns))
+        let result = Worker::builder(ctx.worker_options())
             .dlq("work", 0)
             .route("work", |_msg: RbmqMessage<String>| async {
                 Ok::<(), Infallible>(())
@@ -372,7 +365,7 @@ fn dlq_not_triggered_when_handler_succeeds() {
             .await
             .unwrap();
 
-        let worker = Worker::builder(opts(&ctx.ns))
+        let worker = Worker::builder(ctx.worker_options())
             .poll_interval(Duration::from_millis(50))
             .dlq("dead", 0)
             .route("work", |_msg: RbmqMessage<String>| async {

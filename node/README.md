@@ -1,16 +1,20 @@
-# rbmq (Node.js)
+# @davidbm/rbmq (Node.js)
 
 **Redis Better Message Queue** — a small, atomic Redis-backed queue for Node.js. Same Lua scripts as the Rust implementation. A Rust producer and a Node consumer (or vice versa) share queues with no translation layer.
 
 ## Quick start
 
+The alpha is available as source. The npm tarball includes the shared Lua scripts.
+
 ```sh
-npm install rbmq ioredis
+# Run npm pack from the repository root, then install from your app.
+npm pack --pack-destination /tmp ./node
+npm install /tmp/davidbm-rbmq-1.0.0-alpha.1.tgz ioredis
 ```
 
 ```js
 import Redis from "ioredis";
-import { createClient } from "rbmq";
+import { createClient } from "@davidbm/rbmq";
 
 const redis = new Redis(); // your connection, your lifecycle
 const rbmq = createClient(redis, { ns: "rbmq" });
@@ -36,7 +40,7 @@ if (msg) {
 ## API
 
 ```js
-import { createClient, createWorker } from "rbmq";
+import { createClient, createWorker } from "@davidbm/rbmq";
 ```
 
 ### `createClient(redis, options)`
@@ -65,7 +69,7 @@ Returns an rbmq client object. `options.ns` (default `"rbmq"`), `options.realtim
 A polling helper with built-in heartbeat, optional DLQ, and clean shutdown.
 
 ```js
-import { createWorker } from "rbmq";
+import { createWorker } from "@davidbm/rbmq";
 
 const worker = createWorker({
     redis,                              // OR client: <existing rbmq client>
@@ -109,7 +113,7 @@ import {
     MessageTooLongError,
     InvalidFormatError,
     InvalidValueError,
-} from "rbmq";
+} from "@davidbm/rbmq";
 ```
 
 Lua-side errors (`QueueNotFound`, `QueueExists`, `MessageTooLong`) are mapped to typed errors on the Node side. Other Redis errors propagate as the underlying `Error` from ioredis.

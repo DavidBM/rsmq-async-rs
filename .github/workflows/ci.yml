@@ -92,6 +92,21 @@ jobs:
           REDIS_HOST: 127.0.0.1
           REDIS_PORT: 6379
 
+      - name: Check the packed Node package
+        run: |
+          tarball=$(npm pack --pack-destination "$RUNNER_TEMP")
+          cd "$(mktemp -d)"
+          npm install --no-audit --no-fund "$RUNNER_TEMP/$tarball"
+          node --input-type=module <<'JS'
+          import assert from 'node:assert/strict';
+          import Redis from 'ioredis';
+          import { createClient } from '@davidbm/rbmq';
+          const redis = new Redis({ lazyConnect: true });
+          createClient(redis);
+          assert.equal(typeof redis.rbmqCreateQueue, 'function');
+          redis.disconnect();
+          JS
+
   interop:
     runs-on: ubuntu-latest
     services:

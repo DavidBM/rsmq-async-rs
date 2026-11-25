@@ -143,6 +143,20 @@ impl TestContext {
         TestContext { server, client, ns }
     }
 
+    #[cfg(feature = "worker")]
+    #[allow(dead_code)]
+    pub fn worker_options(&self) -> rbmq::RbmqOptions {
+        let redis::ConnectionAddr::Tcp(host, port) = self.server.get_client_addr() else {
+            panic!("worker tests require a TCP Redis server");
+        };
+        rbmq::RbmqOptions {
+            host: host.clone(),
+            port: *port,
+            ns: self.ns.clone(),
+            ..Default::default()
+        }
+    }
+
     pub async fn async_connection(&self) -> redis::RedisResult<redis::aio::MultiplexedConnection> {
         self.client.get_multiplexed_async_connection().await
     }

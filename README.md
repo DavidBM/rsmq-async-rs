@@ -1,19 +1,21 @@
 # rbmq — Redis Better Message Queue
 
-[![Crates.io](https://img.shields.io/crates/v/rbmq?label=rust)](https://crates.io/crates/rbmq)
-[![npm](https://img.shields.io/npm/v/rbmq?label=node)](https://www.npmjs.com/package/rbmq)
-[![License](https://img.shields.io/crates/l/rbmq)](LICENSE)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 
 **A small, atomic, Redis-backed message queue. The same Lua scripts power the Rust crate and the Node.js package — a Rust producer and a Node consumer share queues with no translation layer.**
 
 > Successor to [`rsmq_async`](https://crates.io/crates/rsmq_async). **v1 is a clean break — not wire-compatible** with the original [`smrchy/rsmq`](https://github.com/smrchy/rsmq) Node package or with `rsmq_async` v17/v18. If you need that compatibility, stay on `rsmq_async`.
+
+`rbmq` is a source-only alpha. For the published Rust client, install
+[`rsmq_async` 18.x](https://crates.io/crates/rsmq_async/18.0.0). Its published
+source corresponds to [commit `8f423e3`](https://github.com/DavidBM/rsmq-async-rs/tree/8f423e36e81ea13f562213c0eac4817db4ed7c5a).
 
 ## What's in here
 
 ```
 scripts/    Lua scripts — the source of truth for queue semantics
 src/        Rust crate (rbmq)
-node/       Node.js package (rbmq, ioredis-based)
+node/       Node.js package (@davidbm/rbmq, ioredis-based)
 examples/   Rust examples (worker, retry, JSON, custom types, interop helper)
 tests/      Rust integration tests (~206)
 node/test/  Node integration tests (~95, including 20 cross-language)
@@ -25,7 +27,7 @@ node/test/  Node integration tests (~95, including 20 cross-language)
 
 ```toml
 [dependencies]
-rbmq = "1.0.0-alpha.1"
+rbmq = { path = "../rsmq-async-rs" }
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 ```
 
@@ -49,12 +51,14 @@ async fn main() -> Result<(), RbmqError> {
 ### Node.js
 
 ```sh
-npm install rbmq ioredis
+npm pack --pack-destination /tmp ./node
+# Run from your application directory
+npm install /tmp/davidbm-rbmq-1.0.0-alpha.1.tgz ioredis
 ```
 
 ```js
 import Redis from "ioredis";
-import { createClient } from "rbmq";
+import { createClient } from "@davidbm/rbmq";
 
 const redis = new Redis();
 const rbmq = createClient(redis);
@@ -68,6 +72,10 @@ if (msg) {
     await rbmq.deleteMessage("jobs", msg.id);
 }
 ```
+
+Use a fresh namespace when testing the alpha next to an existing `rsmq_async`
+deployment. The clients use different Redis key layouts. Drain existing queues
+with the old client before switching their producers and workers to `rbmq`.
 
 ## Design (the why)
 
